@@ -25,7 +25,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
       },
     )
-    if (!response.ok) { res.status(502).json({ error: 'Gemini request failed' }); return }
+    if (!response.ok) {
+      // surfaced temporarily to diagnose upstream failures; does not include the API key
+      const detail = await response.text()
+      res.status(502).json({ error: 'Gemini request failed', status: response.status, detail })
+      return
+    }
     const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().replace(/^["“]|["”]$/g, '')
     if (!text) { res.status(502).json({ error: 'Empty Gemini response' }); return }
