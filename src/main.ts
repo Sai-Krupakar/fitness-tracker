@@ -102,6 +102,7 @@ let tagDropdownOpen = false
 const initialQuote = quotes[Math.floor(Math.random() * quotes.length)]
 let currentQuote = initialQuote.author ? `${initialQuote.text} — ${initialQuote.author}` : initialQuote.text
 let quoteLoading = false
+let quoteIsDefault = true
 const pickLocalQuote = () => {
   const tags = selectedTags.length ? selectedTags : ['motivational', 'inspirational']
   const matches = quotes.filter((quote) => quote.tags.some((tag) => tags.includes(tag)))
@@ -109,6 +110,7 @@ const pickLocalQuote = () => {
   let next = pool[Math.floor(Math.random() * pool.length)]
   while (pool.length > 1 && (next.author ? `${next.text} — ${next.author}` : next.text) === currentQuote) next = pool[Math.floor(Math.random() * pool.length)]
   currentQuote = next.author ? `${next.text} — ${next.author}` : next.text
+  quoteIsDefault = true
 }
 async function loadQuote() {
   quoteLoading = true
@@ -117,29 +119,19 @@ async function loadQuote() {
   const wantsAuthor = activeTags.includes('famous-writers')
   const promptTags = activeTags.join('|')
   try {
-    // famous-writers needs a real attributed quote, which an AI-generated line can't provide
-    if (wantsAuthor) throw new Error('skip gemini for attributed quotes')
     // the APK bundles static files locally, so a relative /api path won't reach Vercel —
-    // VITE_API_BASE_URL must point at the deployed proxy for mobile builds
+    // VITE_API_BASE_URL must point at the deployed proxy for mobile builds. The proxy itself
+    // tries Gemini then zenquotes server-side, avoiding zenquotes' missing CORS headers.
     const apiBase = import.meta.env.VITE_API_BASE_URL ?? ''
-    const response = await fetch(`${apiBase}/api/quote?tags=${encodeURIComponent(promptTags)}`)
-    if (!response.ok) throw new Error('gemini proxy failed')
+    const response = await fetch(`${apiBase}/api/quote?tags=${encodeURIComponent(promptTags)}&attributed=${wantsAuthor}`)
+    if (!response.ok) throw new Error('quote proxy failed')
     const data = await response.json() as { text: string }
-    if (!data.text) throw new Error('empty gemini quote')
+    if (!data.text) throw new Error('empty proxy quote')
     currentQuote = data.text
+    quoteIsDefault = false
   } catch {
-    try {
-      // quotable.io is no longer reachable; zenquotes has no topic tags but always returns
-      // a real attributed quote, which is exactly what famous-writers needs
-      const response = await fetch('https://zenquotes.io/api/random')
-      if (!response.ok) throw new Error('zenquotes request failed')
-      const data = await response.json() as { q: string; a: string }[]
-      if (!data[0]) throw new Error('empty zenquotes response')
-      currentQuote = `${data[0].q} — ${data[0].a}`
-    } catch {
-      // the local tagged list guarantees a quote is always shown, even offline
-      pickLocalQuote()
-    }
+    // the local tagged list guarantees a quote is always shown, even fully offline
+    pickLocalQuote()
   } finally {
     quoteLoading = false
     render()
@@ -152,7 +144,7 @@ function exerciseVisual(kind: string, label: string) {
 
 function renderHomeTab(level: ReturnType<typeof current>, ladderRows: string) {
   return `
-    <section class="hero-panel"><div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div><div class="hero-copy"><div><p class="muted">CURRENT RANK · ${state.planMonths}-MONTH PLAN</p><h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1><p class="rank-name">${level.name}</p></div><div class="rank-emblem">${level.rank}<span>RANK</span></div></div><div class="xp-row"><span>TRAINING DAYS ${state.completed}</span><span>SELF-PACED</span></div><div class="xp-track"><span class="open-progress"></span></div><details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details><button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button><p class="quote">${quoteLoading ? 'Loading today’s quote…' : `“${currentQuote}”`}</p></section>
+    <section class="hero-panel"><div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div><div class="hero-copy"><div><p class="muted">CURRENT RANK · ${state.planMonths}-MONTH PLAN</p><h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1><p class="rank-name">${level.name}</p></div><div class="rank-emblem">${level.rank}<span>RANK</span></div></div><div class="xp-row"><span>TRAINING DAYS ${state.completed}</span><span>SELF-PACED</span></div><div class="xp-track"><span class="open-progress"></span></div><details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details><button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button><p class="quote">${quoteLoading ? 'Loading today’s quote…' : `“${currentQuote}”${quoteIsDefault ? ' (Default)' : ''}`}</p></section>
     <section class="section-heading compact"><div><p class="kicker">YOUR PROGRESSION</p><h2>Previous progress</h2></div><span class="muted">${state.currentLevel} / 8</span></section>
     <section class="ladder"><div class="ladder-summary"><span>Total training days</span><b>${state.completed}</b></div>${ladderRows}</section>`
 }
