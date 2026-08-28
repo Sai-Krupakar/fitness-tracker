@@ -4,8 +4,10 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 // zenquotes.io is also called from here (not the client) because it sends
 // no CORS headers, which silently blocks browser/WebView fetches to it.
 
-async function fetchGemini(apiKey: string, topics: string): Promise<string> {
-  const prompt = `Write one short, original, uplifting fitness quote (max 20 words) about: ${topics}. Respond with only the quote text, no author, no quotation marks, no extra commentary.`
+async function fetchGemini(apiKey: string, topics: string, wantsAttribution: boolean): Promise<string> {
+  const prompt = wantsAttribution
+    ? `Recall one real, well-known quote by a famous writer, philosopher, or historical figure related to: ${topics}. Respond with only "Quote text — Author Name", using the author's correct real name. No extra commentary.`
+    : `Write one short, original, uplifting fitness quote (max 20 words) about: ${topics}. Respond with only the quote text, no author, no quotation marks, no extra commentary.`
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
     {
@@ -38,19 +40,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const tagsParam = typeof req.query.tags === 'string' ? req.query.tags : ''
   const tags = tagsParam.split('|').map((tag) => tag.trim()).filter(Boolean)
   const topics = tags.length ? tags.join(', ') : 'motivational, inspirational'
-  // real writers/authors need a genuinely attributed quote, which an AI model can misattribute
   const wantsAttribution = req.query.attributed === 'true'
 
   try {
-    if (!wantsAttribution) {
-      const apiKey = process.env.GEMINI_API_KEY
-      if (apiKey) {
-        try {
-          const text = await fetchGemini(apiKey, topics)
-          res.status(200).json({ text })
-          return
-        } catch { /* fall through to zenquotes below */ }
-      }
+    const apiKey = process.env.GEMINI_API_KEY
+    if (apiKey) {
+      try {
+        const text = await fetchGemini(apiKey, topics, wantsAttribution)
+        res.status(200).json({ text })
+        return
+      } catch { /* fall through to zenquotes below */ }
     }
     const text = await fetchZenQuote()
     res.status(200).json({ text })
