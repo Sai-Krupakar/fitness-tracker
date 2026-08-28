@@ -3,7 +3,9 @@ import './style.css'
 type TrainingState = { completed: number; missionDone: boolean; xp: number; currentLevel: number; planMonths: number; exerciseTotals: Record<string, number>; dailyLogs: Record<string, Record<string, number>> }
 type Tab = 'home' | 'today' | 'missions' | 'profile'
 
-const quotes: { text: string; tags: string[] }[] = [
+const quotes: { text: string; tags: string[]; author?: string }[] = [
+  { text: 'The iron never lies. Show up, and it shows you who you are becoming.', tags: ['gym', 'motivational'] },
+  { text: 'One more rep than yesterday is how champions are built.', tags: ['gym', 'perseverance'] },
   { text: 'The only one who can defeat me is me.', tags: ['motivational', 'courage'] },
   { text: 'Discipline beats motivation.', tags: ['motivational', 'perseverance'] },
   { text: 'Small reps, repeated daily, become strength.', tags: ['perseverance', 'life'] },
@@ -16,6 +18,24 @@ const quotes: { text: string; tags: string[] }[] = [
   { text: 'Happiness follows effort, not the other way around.', tags: ['happiness', 'life'] },
   { text: 'Success is built one honest rep at a time.', tags: ['success', 'motivational'] },
   { text: 'Wisdom is knowing rest is part of training too.', tags: ['wisdom', 'happiness'] },
+  { text: 'Love is choosing someone, again, in every ordinary moment.', tags: ['love'] },
+  { text: 'A breakup is not the end of your story, only the end of a chapter.', tags: ['breakup', 'sad'] },
+  { text: 'It is okay to grieve what you hoped would stay.', tags: ['sad', 'breakup'] },
+  { text: 'Loving someone who does not choose you back still taught you how to love.', tags: ['one-side-love', 'sad'] },
+  { text: 'Some feelings are meant to be felt, not forced to be returned.', tags: ['one-side-love', 'love'] },
+  { text: 'This sadness will not stay forever, even when it feels endless tonight.', tags: ['sad'] },
+  { text: 'The unexamined life is not worth living.', tags: ['famous-writers', 'wisdom'], author: 'Socrates' },
+  { text: 'It always seems impossible until it is done.', tags: ['famous-writers', 'inspirational'], author: 'Nelson Mandela' },
+  { text: 'Whether you think you can, or you think you can not, you are right.', tags: ['famous-writers', 'motivational'], author: 'Henry Ford' },
+  { text: 'The only way to do great work is to love what you do.', tags: ['famous-writers', 'success'], author: 'Steve Jobs' },
+  { text: 'In the middle of difficulty lies opportunity.', tags: ['famous-writers', 'wisdom'], author: 'Albert Einstein' },
+  { text: 'Success is not final, failure is not fatal: it is the courage to continue that counts.', tags: ['famous-writers', 'courage'], author: 'Winston Churchill' },
+  { text: 'The way to get started is to quit talking and begin doing.', tags: ['famous-writers', 'motivational'], author: 'Walt Disney' },
+  { text: 'Life is what happens to you while you are busy making other plans.', tags: ['famous-writers', 'life'], author: 'John Lennon' },
+  { text: 'The future belongs to those who believe in the beauty of their dreams.', tags: ['famous-writers', 'inspirational'], author: 'Eleanor Roosevelt' },
+  { text: 'It does not matter how slowly you go as long as you do not stop.', tags: ['famous-writers', 'perseverance'], author: 'Confucius' },
+  { text: 'Do not go where the path may lead, go instead where there is no path and leave a trail.', tags: ['famous-writers', 'courage'], author: 'Ralph Waldo Emerson' },
+  { text: 'Happiness is not something ready made. It comes from your own actions.', tags: ['famous-writers', 'happiness'], author: 'Dalai Lama' },
 ]
 
 const levels = [
@@ -58,6 +78,7 @@ const exercises = () => [
 ]
 
 const TAG_OPTIONS = [
+  { id: 'gym', label: 'Gym' },
   { id: 'motivational', label: 'Motivational' },
   { id: 'inspirational', label: 'Inspirational' },
   { id: 'success', label: 'Success' },
@@ -66,43 +87,55 @@ const TAG_OPTIONS = [
   { id: 'wisdom', label: 'Wisdom' },
   { id: 'happiness', label: 'Happiness' },
   { id: 'life', label: 'Life' },
+  { id: 'love', label: 'Love' },
+  { id: 'breakup', label: 'Breakup' },
+  { id: 'sad', label: 'Sad' },
+  { id: 'one-side-love', label: 'One Side Love' },
+  { id: 'famous-writers', label: 'Famous Writers' },
 ]
 const storedTags = localStorage.getItem('level-up-quote-tags')
-let selectedTags: string[] = storedTags ? JSON.parse(storedTags) : ['motivational', 'inspirational']
+let selectedTags: string[] = storedTags ? JSON.parse(storedTags) : ['gym', 'motivational']
 const saveTags = () => localStorage.setItem('level-up-quote-tags', JSON.stringify(selectedTags))
 
 let activeTab: Tab = 'home'
 let tagDropdownOpen = false
-let currentQuote = quotes[Math.floor(Math.random() * quotes.length)].text
+const initialQuote = quotes[Math.floor(Math.random() * quotes.length)]
+let currentQuote = initialQuote.author ? `${initialQuote.text} — ${initialQuote.author}` : initialQuote.text
 let quoteLoading = false
 const pickLocalQuote = () => {
   const tags = selectedTags.length ? selectedTags : ['motivational', 'inspirational']
   const matches = quotes.filter((quote) => quote.tags.some((tag) => tags.includes(tag)))
   const pool = matches.length ? matches : quotes
-  let next = pool[Math.floor(Math.random() * pool.length)].text
-  while (pool.length > 1 && next === currentQuote) next = pool[Math.floor(Math.random() * pool.length)].text
-  currentQuote = next
+  let next = pool[Math.floor(Math.random() * pool.length)]
+  while (pool.length > 1 && (next.author ? `${next.text} — ${next.author}` : next.text) === currentQuote) next = pool[Math.floor(Math.random() * pool.length)]
+  currentQuote = next.author ? `${next.text} — ${next.author}` : next.text
 }
 async function loadQuote() {
   quoteLoading = true
   render()
-  const tags = (selectedTags.length ? selectedTags : ['motivational', 'inspirational']).join('|')
+  const activeTags = selectedTags.length ? selectedTags : ['motivational', 'inspirational']
+  const wantsAuthor = activeTags.includes('famous-writers')
+  const promptTags = activeTags.join('|')
   try {
+    // famous-writers needs a real attributed quote, which an AI-generated line can't provide
+    if (wantsAuthor) throw new Error('skip gemini for attributed quotes')
     // the APK bundles static files locally, so a relative /api path won't reach Vercel —
     // VITE_API_BASE_URL must point at the deployed proxy for mobile builds
     const apiBase = import.meta.env.VITE_API_BASE_URL ?? ''
-    const response = await fetch(`${apiBase}/api/quote?tags=${encodeURIComponent(tags)}`)
+    const response = await fetch(`${apiBase}/api/quote?tags=${encodeURIComponent(promptTags)}`)
     if (!response.ok) throw new Error('gemini proxy failed')
     const data = await response.json() as { text: string }
     if (!data.text) throw new Error('empty gemini quote')
     currentQuote = data.text
   } catch {
     try {
-      // quotable's tag filter keeps results on-topic, unlike generic quote APIs; OR-match via "|"
-      const response = await fetch(`https://api.quotable.io/random?tags=${encodeURIComponent(tags)}`)
-      if (!response.ok) throw new Error('quote request failed')
-      const data = await response.json() as { content: string; author: string }
-      currentQuote = `${data.content} — ${data.author}`
+      // quotable.io is no longer reachable; zenquotes has no topic tags but always returns
+      // a real attributed quote, which is exactly what famous-writers needs
+      const response = await fetch('https://zenquotes.io/api/random')
+      if (!response.ok) throw new Error('zenquotes request failed')
+      const data = await response.json() as { q: string; a: string }[]
+      if (!data[0]) throw new Error('empty zenquotes response')
+      currentQuote = `${data[0].q} — ${data[0].a}`
     } catch {
       // the local tagged list guarantees a quote is always shown, even offline
       pickLocalQuote()
@@ -206,4 +239,3 @@ function render() {
   }))
 }
 render()
-loadQuote()

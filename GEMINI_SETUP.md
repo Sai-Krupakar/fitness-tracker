@@ -6,7 +6,7 @@ directly. Instead, a small serverless function (deployed to Vercel, free tier)
 holds the key and the app calls that function instead of calling Gemini
 directly.
 
-Fallback order if a step fails: **Gemini proxy → quotable.io → local quote
+Fallback order if a step fails: **Gemini proxy → zenquotes.io → local quote
 list.** The app always shows a quote, even if you skip this setup entirely or
 have no internet connection.
 
@@ -101,7 +101,7 @@ npm run android:apk
   **Generate Quote** and confirm it works the same way.
 - If the Gemini proxy is unreachable (e.g. `GEMINI_API_KEY` missing, Vercel
   function error, or no internet), the app silently falls back to
-  `quotable.io`, then to its local quote list — you will still see a quote,
+  `zenquotes.io`, then to its local quote list — you will still see a quote,
   just not necessarily an AI-generated one.
 
 ## Troubleshooting
