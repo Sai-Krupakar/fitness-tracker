@@ -18,19 +18,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
       },
     )
-    if (!response.ok) {
-      // surfaced temporarily to diagnose upstream failures; does not include the API key
-      const detail = await response.text()
-      res.status(502).json({ error: 'Gemini request failed', status: response.status, detail })
-      return
-    }
+    if (!response.ok) { res.status(502).json({ error: 'Gemini request failed' }); return }
     const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().replace(/^["“]|["”]$/g, '')
     if (!text) { res.status(502).json({ error: 'Empty Gemini response' }); return }
