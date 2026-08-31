@@ -1,13 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-// Keeps the Gemini API key server-side; the browser and APK never see it.
-// zenquotes.io is also called from here (not the client) because it sends
-// no CORS headers, which silently blocks browser/WebView fetches to it.
+const buildPrompt = (topics: string, wantsAttribution: boolean) => {
+  const topicRule = topics.includes('exercise')
+    ? 'Exercise may be mentioned when it naturally fits the selected topics.'
+    : 'Do not mention exercise, fitness, training, workouts, reps, gyms, strength, or athletic performance.'
+  const formatRule = wantsAttribution
+    ? 'Use a real quote by a real famous writer, philosopher, or historical figure. Respond only as "Quote text - Author Name".'
+    : 'Write one original uplifting quote with no more than 20 words. Respond only with the quote text, without quotation marks or an author.'
+  return `${formatRule} Write exclusively about these selected topics: ${topics}. ${topicRule} Do not introduce unrelated themes or commentary.`
+}
 
 async function fetchGemini(apiKey: string, topics: string, wantsAttribution: boolean): Promise<string> {
-  const prompt = wantsAttribution
-    ? `Recall one real, well-known quote by a famous writer, philosopher, or historical figure related to: ${topics}. Respond with only "Quote text — Author Name", using the author's correct real name. No extra commentary.`
-    : `Write one short, original, uplifting fitness quote (max 20 words) about: ${topics}. Respond with only the quote text, no author, no quotation marks, no extra commentary.`
+  const prompt = buildPrompt(topics, wantsAttribution)
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
     {
@@ -23,12 +27,24 @@ async function fetchGemini(apiKey: string, topics: string, wantsAttribution: boo
   return text
 }
 
-async function fetchZenQuote(): Promise<string> {
-  const response = await fetch('https://zenquotes.io/api/random')
-  if (!response.ok) throw new Error('zenquotes request failed')
-  const data = await response.json() as { q: string; a: string }[]
-  if (!data[0]) throw new Error('Empty zenquotes response')
-  return `${data[0].q} — ${data[0].a}`
+async function fetchGroq(apiKey: string, topics: string, wantsAttribution: boolean): Promise<string> {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: buildPrompt(topics, wantsAttribution) }],
+      temperature: 0.9,
+    }),
+  })
+  if (!response.ok) throw new Error('Groq request failed')
+  const data = await response.json() as { choices?: { message?: { content?: string } }[] }
+  const text = data.choices?.[0]?.message?.content?.trim().replace(/^['"“]|['"”]$/g, '')
+  if (!text) throw new Error('Empty Groq response')
+  return text
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -38,23 +54,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') { res.status(204).end(); return }
 
   const tagsParam = typeof req.query.tags === 'string' ? req.query.tags : ''
-  const tags = tagsParam.split('|').map((tag) => tag.trim()).filter(Boolean)
-  const topics = tags.length ? tags.join(', ') : 'motivational, inspirational'
+  const tags = tagsParam.split('|').map((tag) => tag.trim()).filter((tag) => /^[a-z-]+$/.test(tag))
+  const topics = tags.length ? tags.map((tag) => tag.replaceAll('-', ' ')).join(', ') : 'motivational, inspirational'
   const wantsAttribution = req.query.attributed === 'true'
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY
-    if (apiKey) {
-      try {
-        const text = await fetchGemini(apiKey, topics, wantsAttribution)
-        res.status(200).json({ text })
-        return
-      } catch { /* fall through to zenquotes below */ }
+    const groqKey = process.env.GROQ_API_KEY
+    const geminiKey = process.env.GEMINI_API_KEY
+    if (!groqKey && !geminiKey) {
+      res.status(503).json({ error: 'No quote provider is configured' })
+      return
     }
-    const text = await fetchZenQuote()
+    const text = groqKey
+      ? await fetchGroq(groqKey, topics, wantsAttribution)
+      : await fetchGemini(geminiKey!, topics, wantsAttribution)
     res.status(200).json({ text })
   } catch {
-    res.status(502).json({ error: 'All quote sources failed' })
+    res.status(502).json({ error: 'Quote generation failed' })
   }
 }
 

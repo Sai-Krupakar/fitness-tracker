@@ -1,52 +1,38 @@
 import './style.css'
 
-type TrainingState = { completed: number; missionDone: boolean; xp: number; currentLevel: number; planMonths: number; exerciseTotals: Record<string, number>; dailyLogs: Record<string, Record<string, number>> }
+type ExerciseEntry = { id: string; label: string }
+type TrainingState = {
+  completed: number;
+  missionDone: boolean;
+  xp: number;
+  currentLevel: number;
+  exerciseTotals: Record<string, number>;
+  dailyLogs: Record<string, Record<string, number>>;
+  customExercises: ExerciseEntry[];
+  lastDecayDate?: string;
+}
 type Tab = 'home' | 'today' | 'missions' | 'profile'
 
-const quotes: { text: string; tags: string[]; author?: string }[] = [
-  { text: 'The iron never lies. Show up, and it shows you who you are becoming.', tags: ['gym', 'motivational'] },
-  { text: 'One more rep than yesterday is how champions are built.', tags: ['gym', 'perseverance'] },
-  { text: 'The only one who can defeat me is me.', tags: ['motivational', 'courage'] },
-  { text: 'Discipline beats motivation.', tags: ['motivational', 'perseverance'] },
-  { text: 'Small reps, repeated daily, become strength.', tags: ['perseverance', 'life'] },
-  { text: 'You do not rise to the occasion, you fall to your training.', tags: ['motivational', 'success'] },
-  { text: 'Every level was once a beginner who refused to quit.', tags: ['inspirational', 'perseverance'] },
-  { text: 'The body achieves what the mind believes.', tags: ['inspirational', 'wisdom'] },
-  { text: 'Consistency is the real superpower.', tags: ['motivational', 'success'] },
-  { text: 'Progress, not perfection.', tags: ['wisdom', 'life'] },
-  { text: 'Courage is not the absence of fear, it is training in spite of it.', tags: ['courage', 'inspirational'] },
-  { text: 'Happiness follows effort, not the other way around.', tags: ['happiness', 'life'] },
-  { text: 'Success is built one honest rep at a time.', tags: ['success', 'motivational'] },
-  { text: 'Wisdom is knowing rest is part of training too.', tags: ['wisdom', 'happiness'] },
-  { text: 'Love is choosing someone, again, in every ordinary moment.', tags: ['love'] },
-  { text: 'A breakup is not the end of your story, only the end of a chapter.', tags: ['breakup', 'sad'] },
-  { text: 'It is okay to grieve what you hoped would stay.', tags: ['sad', 'breakup'] },
-  { text: 'Loving someone who does not choose you back still taught you how to love.', tags: ['one-side-love', 'sad'] },
-  { text: 'Some feelings are meant to be felt, not forced to be returned.', tags: ['one-side-love', 'love'] },
-  { text: 'This sadness will not stay forever, even when it feels endless tonight.', tags: ['sad'] },
-  { text: 'The unexamined life is not worth living.', tags: ['famous-writers', 'wisdom'], author: 'Socrates' },
-  { text: 'It always seems impossible until it is done.', tags: ['famous-writers', 'inspirational'], author: 'Nelson Mandela' },
-  { text: 'Whether you think you can, or you think you can not, you are right.', tags: ['famous-writers', 'motivational'], author: 'Henry Ford' },
-  { text: 'The only way to do great work is to love what you do.', tags: ['famous-writers', 'success'], author: 'Steve Jobs' },
-  { text: 'In the middle of difficulty lies opportunity.', tags: ['famous-writers', 'wisdom'], author: 'Albert Einstein' },
-  { text: 'Success is not final, failure is not fatal: it is the courage to continue that counts.', tags: ['famous-writers', 'courage'], author: 'Winston Churchill' },
-  { text: 'The way to get started is to quit talking and begin doing.', tags: ['famous-writers', 'motivational'], author: 'Walt Disney' },
-  { text: 'Life is what happens to you while you are busy making other plans.', tags: ['famous-writers', 'life'], author: 'John Lennon' },
-  { text: 'The future belongs to those who believe in the beauty of their dreams.', tags: ['famous-writers', 'inspirational'], author: 'Eleanor Roosevelt' },
-  { text: 'It does not matter how slowly you go as long as you do not stop.', tags: ['famous-writers', 'perseverance'], author: 'Confucius' },
-  { text: 'Do not go where the path may lead, go instead where there is no path and leave a trail.', tags: ['famous-writers', 'courage'], author: 'Ralph Waldo Emerson' },
-  { text: 'Happiness is not something ready made. It comes from your own actions.', tags: ['famous-writers', 'happiness'], author: 'Dalai Lama' },
-]
+const XP_CONFIG = {
+  levelThresholds: [0, 300, 700, 1300, 2100, 3000, 4100, 5400, 7000],
+  exercise: {
+    push: 0.2,
+    run: 5,
+    custom: 0.1,
+    dayBonus: 1,
+    missPenalty: 5,
+  },
+} as const
 
 const levels = [
-  { name: 'Awakening', rank: '01', push: '20 x 3', squat: '20 x 3', core: '20 x 3', run: '2 km', xp: 120 },
-  { name: 'Recruit', rank: '02', push: '22 x 3', squat: '22 x 3', core: '22 x 3', run: '2.5 km', xp: 180 },
-  { name: 'Hunter', rank: '03', push: '25 x 3', squat: '25 x 3', core: '25 x 3', run: '3 km', xp: 240 },
-  { name: 'Elite', rank: '04', push: '28 x 3', squat: '28 x 3', core: '28 x 3', run: '4 km', xp: 300 },
-  { name: 'Commander', rank: '05', push: '30 x 3', squat: '30 x 3', core: '30 x 3', run: '5 km', xp: 380 },
-  { name: 'Monarch', rank: '06', push: '25 x 4', squat: '35 x 3', core: '35 x 3', run: '6 km', xp: 470 },
-  { name: 'Shadow Monarch', rank: '07', push: '25 x 4', squat: '25 x 4', core: '25 x 4', run: '8 km', xp: 580 },
-  { name: 'National Level', rank: '08', push: '100 total', squat: '100 total', core: '100 total', run: '10 km', xp: 720 },
+  { name: 'Awakening', rank: '01', push: '20 x 3', squat: '20 x 3', core: '20 x 3', run: '2 km', xp: 300 },
+  { name: 'Recruit', rank: '02', push: '22 x 3', squat: '22 x 3', core: '22 x 3', run: '2.5 km', xp: 700 },
+  { name: 'Hunter', rank: '03', push: '25 x 3', squat: '25 x 3', core: '25 x 3', run: '3 km', xp: 1300 },
+  { name: 'Elite', rank: '04', push: '28 x 3', squat: '28 x 3', core: '28 x 3', run: '4 km', xp: 2100 },
+  { name: 'Commander', rank: '05', push: '30 x 3', squat: '30 x 3', core: '30 x 3', run: '5 km', xp: 3000 },
+  { name: 'Monarch', rank: '06', push: '25 x 4', squat: '35 x 3', core: '35 x 3', run: '6 km', xp: 4100 },
+  { name: 'Shadow Monarch', rank: '07', push: '25 x 4', squat: '25 x 4', core: '25 x 4', run: '8 km', xp: 5400 },
+  { name: 'National Level', rank: '08', push: '100 total', squat: '100 total', core: '100 total', run: '10 km', xp: 7000 },
 ]
 const missions = [
   { letter: 'A', name: 'Agility drills', detail: '3 rounds · 30 seconds each' },
@@ -63,22 +49,69 @@ let state: TrainingState = {
   missionDone: oldState.missionDone ?? false,
   xp: oldState.xp ?? 0,
   currentLevel: oldState.currentLevel ?? 1,
-  planMonths: oldState.planMonths ?? 12,
-  exerciseTotals: oldState.exerciseTotals ?? { push: 0, squat: 0, core: 0, run: 0 },
+  exerciseTotals: oldState.exerciseTotals ?? { push: 0, run: 0 },
   dailyLogs: oldState.dailyLogs ?? {},
+  customExercises: oldState.customExercises ?? [],
+  lastDecayDate: oldState.lastDecayDate,
 }
 const save = () => localStorage.setItem('level-up-state', JSON.stringify(state))
-const current = () => levels[state.currentLevel - 1]
+const current = () => levels[Math.min(state.currentLevel - 1, levels.length - 1)]
 const todayLog = () => state.dailyLogs[todayKey()] ?? {}
-const exercises = () => [
+const getExerciseXpGain = (exerciseId: string) => {
+  if (exerciseId === 'push') return XP_CONFIG.exercise.push
+  if (exerciseId === 'run') return XP_CONFIG.exercise.run
+  return XP_CONFIG.exercise.custom
+}
+const getExerciseXpLabel = (exerciseId: string) => {
+  if (exerciseId === 'push') return `+${XP_CONFIG.exercise.push} XP / rep`
+  if (exerciseId === 'run') return `+${XP_CONFIG.exercise.run} XP / km`
+  return `+${XP_CONFIG.exercise.custom} XP / unit`
+}
+const syncLevelFromXp = () => {
+  let nextLevel = 1
+  for (let index = 0; index < XP_CONFIG.levelThresholds.length - 1; index += 1) {
+    if (state.xp >= XP_CONFIG.levelThresholds[index + 1]) nextLevel = index + 2
+  }
+  state.currentLevel = Math.min(nextLevel, levels.length)
+}
+const getLevelProgress = () => {
+  const currentThresholdIndex = Math.min(state.currentLevel - 1, XP_CONFIG.levelThresholds.length - 2)
+  const previousThreshold = XP_CONFIG.levelThresholds[currentThresholdIndex]
+  const nextThreshold = XP_CONFIG.levelThresholds[currentThresholdIndex + 1]
+  const currentProgress = Math.max(state.xp - previousThreshold, 0)
+  const totalProgress = Math.max(nextThreshold - previousThreshold, 1)
+  return {
+    previousThreshold,
+    nextThreshold,
+    currentProgress,
+    totalProgress,
+    percent: Math.min((currentProgress / totalProgress) * 100, 100),
+  }
+}
+const applyMissedDayPenalty = () => {
+  const dateKey = todayKey()
+  const hasLogsToday = Object.keys(state.dailyLogs[dateKey] ?? {}).length > 0
+  if (hasLogsToday || state.lastDecayDate === dateKey) return
+
+  const penalty = XP_CONFIG.exercise.missPenalty
+  state.xp = Math.max(0, state.xp - penalty)
+  state.lastDecayDate = dateKey
+  syncLevelFromXp()
+  save()
+}
+const baseExercises = [
+  { id: 'run', label: 'Run', icon: 'run' },
   { id: 'push', label: 'Push-ups', icon: 'pushup' },
-  { id: 'squat', label: 'Squats', icon: 'squat' },
-  { id: 'core', label: 'Core exercise', icon: 'core' },
-  { id: 'run', label: 'Run / walk', icon: 'run' },
+] as const
+const exercises = () => [
+  ...baseExercises.map((exercise) => ({ ...exercise })),
+  ...state.customExercises.map((exercise) => ({ id: exercise.id, label: exercise.label, icon: 'custom' }))
 ]
 
+const buildExerciseId = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `exercise-${Date.now()}`
+
 const TAG_OPTIONS = [
-  { id: 'gym', label: 'Gym' },
+  { id: 'exercise', label: 'Exercise' },
   { id: 'motivational', label: 'Motivational' },
   { id: 'inspirational', label: 'Inspirational' },
   { id: 'success', label: 'Success' },
@@ -94,24 +127,17 @@ const TAG_OPTIONS = [
   { id: 'famous-writers', label: 'Famous Writers' },
 ]
 const storedTags = localStorage.getItem('level-up-quote-tags')
-let selectedTags: string[] = storedTags ? JSON.parse(storedTags) : ['gym', 'motivational']
+let selectedTags: string[] = storedTags ? JSON.parse(storedTags).map((tag: string) => tag === 'gym' ? 'exercise' : tag) : ['exercise', 'motivational']
 const saveTags = () => localStorage.setItem('level-up-quote-tags', JSON.stringify(selectedTags))
 
 let activeTab: Tab = 'home'
 let tagDropdownOpen = false
-const initialQuote = quotes[Math.floor(Math.random() * quotes.length)]
-let currentQuote = initialQuote.author ? `${initialQuote.text} — ${initialQuote.author}` : initialQuote.text
+let currentQuote: string | null = null
 let quoteLoading = false
-let quoteIsDefault = true
-const pickLocalQuote = () => {
-  const tags = selectedTags.length ? selectedTags : ['motivational', 'inspirational']
-  const matches = quotes.filter((quote) => quote.tags.some((tag) => tags.includes(tag)))
-  const pool = matches.length ? matches : quotes
-  let next = pool[Math.floor(Math.random() * pool.length)]
-  while (pool.length > 1 && (next.author ? `${next.text} — ${next.author}` : next.text) === currentQuote) next = pool[Math.floor(Math.random() * pool.length)]
-  currentQuote = next.author ? `${next.text} — ${next.author}` : next.text
-  quoteIsDefault = true
-}
+let quoteIsDefault = false
+let customExerciseFormOpen = false
+let resetConfirmationOpen = false
+let pendingExerciseDeletion: ExerciseEntry | null = null
 async function loadQuote() {
   quoteLoading = true
   render()
@@ -119,9 +145,7 @@ async function loadQuote() {
   const wantsAuthor = activeTags.includes('famous-writers')
   const promptTags = activeTags.join('|')
   try {
-    // the APK bundles static files locally, so a relative /api path won't reach Vercel —
-    // VITE_API_BASE_URL must point at the deployed proxy for mobile builds. The proxy itself
-    // tries Gemini then zenquotes server-side, avoiding zenquotes' missing CORS headers.
+    // The APK bundles static files locally, so VITE_API_BASE_URL must point at the deployed proxy.
     const apiBase = import.meta.env.VITE_API_BASE_URL ?? ''
     const response = await fetch(`${apiBase}/api/quote?tags=${encodeURIComponent(promptTags)}&attributed=${wantsAuthor}`)
     if (!response.ok) throw new Error('quote proxy failed')
@@ -130,8 +154,8 @@ async function loadQuote() {
     currentQuote = data.text
     quoteIsDefault = false
   } catch {
-    // the local tagged list guarantees a quote is always shown, even fully offline
-    pickLocalQuote()
+    currentQuote = 'Unable to generate a quote right now. Please try again.'
+    quoteIsDefault = false
   } finally {
     quoteLoading = false
     render()
@@ -143,16 +167,55 @@ function exerciseVisual(kind: string, label: string) {
 }
 
 function renderHomeTab(level: ReturnType<typeof current>, ladderRows: string) {
+  const progress = getLevelProgress()
+  const progressWidth = `${Math.max(0, Math.min(progress.percent, 100))}%`
+  const xpRules = `
+    <div class="xp-rule"><span>Push-ups : </span><strong>+${XP_CONFIG.exercise.push} XP / rep</strong></div>
+    <div class="xp-rule"><span>Run : </span><strong>+${XP_CONFIG.exercise.run} XP / km</strong></div>
+    <div class="xp-rule"><span>Custom exercise : </span><strong>+${XP_CONFIG.exercise.custom} XP / unit</strong></div>
+    <div class="xp-rule"><span>Daily login credit : </span><strong>+${XP_CONFIG.exercise.dayBonus} XP</strong></div>
+    <div class="xp-rule xp-rule-penalty"><span>Missed day : </span><strong>-${XP_CONFIG.exercise.missPenalty} XP</strong></div>`
   return `
-    <section class="hero-panel"><div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div><div class="hero-copy"><div><p class="muted">CURRENT RANK · ${state.planMonths}-MONTH PLAN</p><h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1><p class="rank-name">${level.name}</p></div><div class="rank-emblem">${level.rank}<span>RANK</span></div></div><div class="xp-row"><span>TRAINING DAYS ${state.completed}</span><span>SELF-PACED</span></div><div class="xp-track"><span class="open-progress"></span></div><details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details><button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button><p class="quote">${quoteLoading ? 'Loading today’s quote…' : `“${currentQuote}”${quoteIsDefault ? ' (Default)' : ''}`}</p></section>
+    <section class="hero-panel"><div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div><div class="hero-copy"><div><p class="muted">CURRENT RANK</p><h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1><p class="rank-name">${level.name}</p></div><div class="rank-emblem">${level.rank}<span>RANK</span></div></div><div class="xp-row"><span>TRAINING DAYS ${state.completed}</span><span>SELF-PACED</span></div><div class="xp-track"><span class="open-progress" style="width: ${progressWidth};"></span></div><div class="xp-progress-meta"><span>${state.xp} XP</span><span>${progress.currentProgress} / ${progress.totalProgress} to next</span></div><div class="xp-rules">${xpRules}</div><details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details><button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>${quoteLoading || currentQuote ? `<p class="quote">${quoteLoading ? 'Loading today’s quote…' : `“${currentQuote}”${quoteIsDefault ? ' (Default)' : ''}`}</p>` : ''}</section>
     <section class="section-heading compact"><div><p class="kicker">YOUR PROGRESSION</p><h2>Previous progress</h2></div><span class="muted">${state.currentLevel} / 8</span></section>
     <section class="ladder"><div class="ladder-summary"><span>Total training days</span><b>${state.completed}</b></div>${ladderRows}</section>`
 }
 
 function renderTodayTab(log: Record<string, number>, todayLabel: string) {
+  const exerciseList = exercises().map((exercise) => {
+    const isCustom = !baseExercises.some((baseExercise) => baseExercise.id === exercise.id)
+    const loggedQuantity = log[exercise.id]
+    const isLoggedToday = loggedQuantity !== undefined
+    const exerciseDetail = isLoggedToday
+      ? `<small><span>All-time total: ${state.exerciseTotals[exercise.id] ?? 0}</span><span>Logged today: ${loggedQuantity}</span><span>Available tomorrow</span></small>`
+      : `<small>All-time total: ${state.exerciseTotals[exercise.id] ?? 0} • ${getExerciseXpLabel(exercise.id)}</small>`
+    const deleteButton = isCustom
+      ? `<button class="small-button delete-custom-exercise" data-exercise="${exercise.id}" type="button">DELETE</button>`
+      : ''
+
+    return `
+      <div class="log-item ${isLoggedToday ? 'logged-today' : ''}">
+        <span class="check-figure ${exercise.icon}">${exerciseVisual(exercise.icon, '')}</span>
+        <span class="check-copy"><b>${exercise.label}</b>${exerciseDetail}</span>
+        <input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" value="${isLoggedToday ? loggedQuantity : ''}" placeholder="0" aria-label="${exercise.label} count" ${isLoggedToday ? 'disabled' : ''}>
+        <button class="small-button add-exercise" data-exercise="${exercise.id}" type="button" ${isLoggedToday ? 'disabled' : ''}>${isLoggedToday ? 'LOGGED' : 'ADD'}</button>
+        ${deleteButton}
+      </div>
+    `
+  }).join('')
+
+  const customFormMarkup = customExerciseFormOpen ? `
+    <div class="custom-exercise-form" id="custom-exercise-form">
+      <input id="custom-exercise-name" type="text" maxlength="30" placeholder="Exercise name" aria-label="Custom exercise name">
+      <div class="custom-exercise-actions">
+        <button class="small-button secondary-button" id="cancel-custom-exercise" type="button">CANCEL</button>
+        <button class="small-button" id="save-custom-exercise" type="button">SAVE</button>
+      </div>
+    </div>` : ''
+
   return `
     <section class="section-heading"><div><p class="kicker">${todayLabel.toUpperCase()}</p><h2>Log your training</h2></div><span class="day-chip">${Object.keys(log).length} EXERCISES</span></section>
-    <section class="mission-card"><div class="mission-top"><div><span class="mission-tag">FLEXIBLE DAILY LOG</span><h3>What did you complete?</h3><p>Enter the real count for each exercise. No fixed daily requirement.</p></div><div class="quest-symbol">◈</div></div><div class="checklist">${exercises().map((exercise) => `<div class="log-item"><span class="check-figure ${exercise.icon}">${exerciseVisual(exercise.icon, '')}</span><span class="check-copy"><b>${exercise.label}</b><small>Total logged: ${state.exerciseTotals[exercise.id] ?? 0}</small></span><input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" placeholder="0" aria-label="${exercise.label} count"><button class="small-button add-exercise" data-exercise="${exercise.id}">ADD</button></div>`).join('')}</div><div class="metrics"><div><b>${state.completed}</b><span>total days</span></div><div><b>${Object.keys(log).length}</b><span>today logged</span></div><div><b>${state.xp}</b><span>XP earned</span></div><div><b>ON TRACK</b><span>self-paced plan</span></div></div></section>`
+    <section class="mission-card"><div class="mission-top"><div><span class="mission-tag">FLEXIBLE DAILY LOG</span><h3>What did you complete?</h3><p>Enter the real count for each exercise. No fixed daily requirement.</p></div><div class="quest-symbol">◈</div></div><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button">ADD EXERCISE</button></div><div class="metrics"><div><b>${state.completed}</b><span>total training days</span></div></div></section>`
 }
 
 function renderMissionsTab(mission: typeof missions[number]) {
@@ -164,7 +227,7 @@ function renderMissionsTab(mission: typeof missions[number]) {
 function renderProfileTab(level: ReturnType<typeof current>) {
   return `
     <section class="section-heading"><div><p class="kicker">PLAYER PROFILE</p><h2>Hunter status</h2></div></section>
-    <section class="mission-card"><div class="profile-stat"><span>Current rank</span><b>Level ${String(state.currentLevel).padStart(2, '0')} · ${level.name}</b></div><div class="profile-stat"><span>Plan duration</span><select id="plan-duration" aria-label="Plan duration"><option value="1" ${state.planMonths === 1 ? 'selected' : ''}>1 month</option><option value="3" ${state.planMonths === 3 ? 'selected' : ''}>3 months</option><option value="6" ${state.planMonths === 6 ? 'selected' : ''}>6 months</option><option value="9" ${state.planMonths === 9 ? 'selected' : ''}>9 months</option><option value="12" ${state.planMonths === 12 ? 'selected' : ''}>12 months</option></select></div><div class="profile-stat"><span>Total training days</span><b>${state.completed}</b></div><div class="profile-stat"><span>Progress style</span><b>SELF-PACED</b></div><button class="reset-button" id="reset-progress">RESET LOCAL PROGRESS</button></section>`
+    <section class="mission-card"><div class="profile-stat"><span>Current rank</span><b>Level ${String(state.currentLevel).padStart(2, '0')} · ${level.name}</b></div><div class="profile-stat"><span>Total training days</span><b>${state.completed}</b></div><div class="profile-stat"><span>Progress style</span><b>SELF-PACED</b></div><button class="reset-button" id="reset-progress">RESET LOCAL PROGRESS</button></section>`
 }
 
 function render() {
@@ -192,8 +255,32 @@ function render() {
     <div class="app-shell">
       <header class="topbar"><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><div class="header-status"><span class="status-dot"></span> ${todayLabel}</div><button class="icon-button" id="profile" aria-label="Open profile">◎</button></header>
       <main id="top">${tabContent}</main>
-      <nav class="bottom-nav">${navItem('home', '⌂', 'HOME')}${navItem('today', '◒', "TODAY'S PROGRESS")}${navItem('missions', '✦', 'MISSIONS')}${navItem('profile', '◉', 'PROFILE')}</nav>
+      <nav class="bottom-nav">${navItem('home', '⌂', 'HOME')}${navItem('today', '◒', "TODAY'S LOG")}${navItem('missions', '✦', 'MISSIONS')}${navItem('profile', '◉', 'PROFILE')}</nav>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      ${resetConfirmationOpen ? `<div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-dialog-title">
+        <div class="confirmation-backdrop" id="cancel-reset"></div>
+        <section class="confirmation-panel">
+          <p class="kicker">RESET PROGRESS</p>
+          <h2 id="reset-dialog-title">Start over?</h2>
+          <p>This will permanently remove your XP, exercise logs, completed days, and custom exercises.</p>
+          <div class="confirmation-actions">
+            <button class="small-button secondary-button" id="cancel-reset" type="button">CANCEL</button>
+            <button class="small-button reset-confirm-button" id="confirm-reset" type="button">RESET PROGRESS</button>
+          </div>
+        </section>
+      </div>` : ''}
+      ${pendingExerciseDeletion ? `<div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
+        <div class="confirmation-backdrop" id="cancel-exercise-delete"></div>
+        <section class="confirmation-panel">
+          <p class="kicker">REMOVE EXERCISE</p>
+          <h2 id="delete-dialog-title">Delete ${pendingExerciseDeletion.label}?</h2>
+          <p>This removes the exercise and all of its saved entries from your local progress.</p>
+          <div class="confirmation-actions">
+            <button class="small-button secondary-button" id="cancel-exercise-delete" type="button">CANCEL</button>
+            <button class="small-button reset-confirm-button" id="confirm-exercise-delete" type="button">DELETE EXERCISE</button>
+          </div>
+        </section>
+      </div>` : ''}
     </div>`
 
   const showToast = (message: string) => { const toast = document.querySelector<HTMLDivElement>('#toast'); if (!toast) { return }; toast.textContent = message; toast.classList.add('visible'); window.setTimeout(() => toast.classList.remove('visible'), 2200) }
@@ -204,12 +291,23 @@ function render() {
     if (!id || !Number.isFinite(quantity) || quantity <= 0) { showToast('Enter a quantity greater than zero'); return }
     const date = todayKey()
     const dayLog = state.dailyLogs[date] ?? {}
+    if (dayLog[id] !== undefined) { showToast('This exercise is already logged for today'); return }
     const wasNewDay = Object.keys(dayLog).length === 0
-    dayLog[id] = (dayLog[id] ?? 0) + Math.floor(quantity)
+    const enteredCount = Math.floor(quantity)
+    dayLog[id] = enteredCount
     state.dailyLogs[date] = dayLog
-    state.exerciseTotals[id] = (state.exerciseTotals[id] ?? 0) + Math.floor(quantity)
-    if (wasNewDay) { state.completed += 1; state.xp += 20 }
-    save(); render(); showToast(`${Math.floor(quantity)} ${id} logged`)
+    state.exerciseTotals[id] = (state.exerciseTotals[id] ?? 0) + enteredCount
+    if (wasNewDay) {
+      state.completed += 1
+      state.xp += XP_CONFIG.exercise.dayBonus
+    }
+
+    const xpGain = getExerciseXpGain(id) * enteredCount
+    const xpText = id === 'run' ? `${enteredCount} km` : `${enteredCount} reps`
+    state.xp += xpGain
+    state.lastDecayDate = date
+    syncLevelFromXp()
+    save(); render(); showToast(`${xpText} logged · +${xpGain.toFixed(1)} XP`)
   }))
   document.querySelector('#quote-tags')?.addEventListener('toggle', (event) => { tagDropdownOpen = (event.target as HTMLDetailsElement).open })
   document.querySelectorAll<HTMLInputElement>('.tag-options input[data-tag]').forEach((checkbox) => checkbox.addEventListener('change', () => {
@@ -219,10 +317,100 @@ function render() {
     render()
   }))
   document.querySelector('#generate-quote')?.addEventListener('click', () => loadQuote())
-  document.querySelector('#mission-button')?.addEventListener('click', () => { state.missionDone = !state.missionDone; state.xp = Math.max(0, state.xp + (state.missionDone ? 25 : -25)); save(); render(); showToast(state.missionDone ? 'A–Z mission logged · +25 XP' : 'A–Z mission removed') })
+
+  const customInput = document.querySelector<HTMLInputElement>('#custom-exercise-name')
+  const openCustomForm = () => {
+    customExerciseFormOpen = true
+    render()
+    requestAnimationFrame(() => {
+      const nextInput = document.querySelector<HTMLInputElement>('#custom-exercise-name')
+      nextInput?.focus()
+    })
+  }
+  const closeCustomForm = () => {
+    customExerciseFormOpen = false
+    if (customInput) customInput.value = ''
+    render()
+  }
+
+  document.querySelector('#add-custom-exercise')?.addEventListener('click', () => {
+    openCustomForm()
+  })
+
+  document.querySelector('#cancel-custom-exercise')?.addEventListener('click', () => {
+    closeCustomForm()
+  })
+
+  document.querySelector('#save-custom-exercise')?.addEventListener('click', () => {
+    const customName = customInput?.value.trim() ?? ''
+    if (!customName) {
+      showToast('Enter an exercise name')
+      return
+    }
+
+    const normalized = customName.toLowerCase()
+    const matchesExisting = [...baseExercises, ...state.customExercises].some((exercise) => exercise.label.toLowerCase() === normalized)
+    if (matchesExisting) {
+      showToast('This exercise already exists')
+      closeCustomForm()
+      return
+    }
+
+    const customId = buildExerciseId(customName)
+    state.customExercises.push({ id: customId, label: customName })
+    state.exerciseTotals[customId] = state.exerciseTotals[customId] ?? 0
+    save()
+    closeCustomForm()
+    showToast(`${customName} added`)
+  })
+
+  document.querySelectorAll<HTMLButtonElement>('.delete-custom-exercise').forEach((button) => button.addEventListener('click', () => {
+    const id = button.dataset.exercise
+    if (!id) return
+
+    const exercise = state.customExercises.find((item) => item.id === id)
+    if (!exercise) return
+
+    pendingExerciseDeletion = exercise
+    render()
+  }))
+
+  document.querySelector('#mission-button')?.addEventListener('click', () => { state.missionDone = !state.missionDone; state.xp = Math.max(0, state.xp + (state.missionDone ? 35 : -20)); syncLevelFromXp(); save(); render(); showToast(state.missionDone ? 'A–Z mission logged · +35 XP' : 'A–Z mission removed') })
   document.querySelector('#profile')?.addEventListener('click', () => { activeTab = 'profile'; render() })
-  document.querySelector('#plan-duration')?.addEventListener('change', (event) => { const selectedMonths = Number((event.target as HTMLSelectElement).value); state.planMonths = selectedMonths; save(); render(); showToast(`${selectedMonths}-month plan selected`) })
-  document.querySelector('#reset-progress')?.addEventListener('click', () => { state = { completed: 0, missionDone: false, xp: 0, currentLevel: 1, planMonths: 12, exerciseTotals: { push: 0, squat: 0, core: 0, run: 0 }, dailyLogs: {} }; save(); render(); showToast('Progress reset to Level 1') })
+  document.querySelector('#reset-progress')?.addEventListener('click', () => {
+    resetConfirmationOpen = true
+    render()
+  })
+  document.querySelectorAll<HTMLElement>('#cancel-reset').forEach((element) => element.addEventListener('click', () => {
+    resetConfirmationOpen = false
+    render()
+  }))
+  document.querySelector('#confirm-reset')?.addEventListener('click', () => {
+    resetConfirmationOpen = false
+
+    state = { completed: 0, missionDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, customExercises: [], lastDecayDate: undefined }
+    save()
+    render()
+    showToast('Progress reset to Level 1')
+  })
+  document.querySelectorAll<HTMLElement>('#cancel-exercise-delete').forEach((element) => element.addEventListener('click', () => {
+    pendingExerciseDeletion = null
+    render()
+  }))
+  document.querySelector('#confirm-exercise-delete')?.addEventListener('click', () => {
+    const exercise = pendingExerciseDeletion
+    if (!exercise) return
+
+    pendingExerciseDeletion = null
+    state.customExercises = state.customExercises.filter((item) => item.id !== exercise.id)
+    delete state.exerciseTotals[exercise.id]
+    Object.keys(state.dailyLogs).forEach((dateKey) => {
+      delete state.dailyLogs[dateKey][exercise.id]
+    })
+    save()
+    render()
+    showToast(`${exercise.label} deleted`)
+  })
   document.querySelectorAll<HTMLAnchorElement>('.bottom-nav a').forEach((link) => link.addEventListener('click', (event) => {
     event.preventDefault()
     const tab = link.dataset.tab as Tab
@@ -230,4 +418,5 @@ function render() {
     render()
   }))
 }
+applyMissedDayPenalty()
 render()

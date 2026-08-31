@@ -1,22 +1,16 @@
-# Gemini Quote API — Setup and Deployment Guide
+# AI Quote API - Setup and Deployment Guide
 
-This app can generate motivational quotes using Google's Gemini API. Because the
-Gemini API key is a secret, it must never be placed in the browser/APK code
-directly. Instead, a small serverless function (deployed to Vercel, free tier)
-holds the key and the app calls that function instead of calling Gemini
-directly.
+This app generates quotes with Groq or Google's Gemini API. API keys are
+kept only in the Vercel serverless function, never in the browser or APK.
 
-Fallback order if a step fails: **Gemini proxy → zenquotes.io → local quote
-list.** The app always shows a quote, even if you skip this setup entirely or
-have no internet connection.
+Groq is used when `GROQ_API_KEY` is configured. Otherwise, Gemini is used when
+`GEMINI_API_KEY` is configured. There is no random or local quote fallback.
 
-## 1. Get a free Gemini API key
+## 1. Choose a provider and get an API key
 
-1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
-2. Sign in with a Google account.
-3. Click **Create API key**.
-4. Copy the key — you will paste it into Vercel in step 3, not into this
-   project's source code.
+For Groq, create a free API key at [GroqCloud](https://console.groq.com/keys).
+For Gemini, go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+and create an API key.
 
 Gemini's free tier has generous daily request limits, more than enough for
 personal use of this app.
@@ -48,13 +42,14 @@ vercel
 - After the first deploy finishes, note the URL it prints, for example:
   `https://fitness-yourname.vercel.app`
 
-## 4. Add the Gemini API key to the Vercel project
+## 4. Add the provider API key to Vercel
 
 1. Go to the [Vercel dashboard](https://vercel.com/dashboard) → your project →
    **Settings → Environment Variables**.
-2. Add a new variable:
-   - **Name:** `GEMINI_API_KEY`
-   - **Value:** the key you copied in step 1.
+2. Add one of these variables:
+  - **Name:** `GROQ_API_KEY` for Groq (preferred when both keys exist).
+  - **Name:** `GEMINI_API_KEY` for Gemini.
+  - **Value:** the key you copied in step 1.
    - **Environment:** Production (and Preview if you want preview deploys to
      work too).
 3. Redeploy so the function picks up the new variable:
@@ -99,21 +94,18 @@ npm run android:apk
   press **Generate Quote**, and confirm a new quote appears.
 - **Phone (APK installed):** with the phone connected to the internet, press
   **Generate Quote** and confirm it works the same way.
-- If the Gemini proxy is unreachable (e.g. `GEMINI_API_KEY` missing, Vercel
-  function error, or no internet), the app silently falls back to
-  `zenquotes.io`, then to its local quote list — you will still see a quote,
-  just not necessarily an AI-generated one.
+- If the configured provider is unreachable, the app displays an error instead
+  of using an unrelated quote.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Quotes never look AI-generated (always short famous quotes with an author name) | `VITE_API_BASE_URL` not set, or app rebuilt before setting it | Confirm `.env` has the correct URL, then rerun `npm run build` / `npm run android:apk` |
-| `500` error mentioning `GEMINI_API_KEY` | Environment variable not set in Vercel, or you forgot to redeploy after adding it | Recheck Settings → Environment Variables, then `vercel --prod` |
+| Quote generation fails | No provider key is configured, or the key is invalid | Add `GROQ_API_KEY` or `GEMINI_API_KEY` in Vercel, then run `vercel --prod` |
 | Works in browser but not in the APK | Missing CORS or wrong base URL | `api/quote.ts` already sends `Access-Control-Allow-Origin: *`; double-check `VITE_API_BASE_URL` matches your live Vercel URL exactly |
 | Nothing changes after editing `.env` | Vite only reads `.env` at build time | Stop `npm run dev` and restart it, or rerun `npm run build` |
 
 ## Cost
 
-Vercel's free (Hobby) tier and Gemini's free tier are both sufficient for
-personal use of this app. Nothing in this setup requires a paid plan.
+Vercel's Hobby tier, Groq's free tier, and Gemini's free tier are suitable for
+personal use. Provider free-tier limits and available models may change.
