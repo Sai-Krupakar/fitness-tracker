@@ -91,6 +91,8 @@ main { padding: 20px 18px 30px; }.hero-panel { position: relative; overflow: hid
 /* State updates rebuild the view, so automatic motion would replay after every click. */
 *, *::before, *::after { animation: none !important; }
 
+.hero-panel .quote { position: relative; z-index: 2; margin: 14px 0 18px; padding: 11px 14px; border-left: 3px solid var(--coral); background: linear-gradient(90deg, rgba(255,117,91,.13), rgba(199,242,105,.04)); color: #edf8f1; font-size: 19px; font-style: italic; font-weight: 600; line-height: 1.25; letter-spacing: .2px; text-shadow: 0 1px 10px rgba(199,242,105,.16); }
+
 /* Compact command feed: older rules hid these rows while preserving their height. */
 .raid-board { padding: 12px; }
 .raid-board .raid-heading { margin: 0 0 8px !important; }
