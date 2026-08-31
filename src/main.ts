@@ -230,6 +230,8 @@ function renderHomeTab(level: ReturnType<typeof current>) {
       <div class="dungeon-scene" aria-hidden="true"><span class="portal-ring"></span><span class="hunter-silhouette"><i></i><i></i></span><span class="shadow-particle particle-one"></span><span class="shadow-particle particle-two"></span><span class="shadow-particle particle-three"></span></div>
       <div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div>
       ${quoteMarkup}
+      <details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details>
+      <button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>
       <div class="hero-copy">
         <div>
           <p class="muted">CURRENT RANK</p>
@@ -247,8 +249,6 @@ function renderHomeTab(level: ReturnType<typeof current>) {
       <div class="xp-track"><span class="open-progress" style="width: ${progressWidth};"></span></div>
       <div class="xp-progress-meta"><span>${state.xp} XP</span><span>${progress.currentProgress} / ${progress.totalProgress} to next</span></div>
       <div class="xp-rules">${xpRules}</div>
-      <details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details>
-      <button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>
     </section>
 
     <section class="stat-grid">
