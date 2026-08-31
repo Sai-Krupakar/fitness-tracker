@@ -9,12 +9,13 @@ type TrainingState = {
   currentLevel: number;
   exerciseTotals: Record<string, number>;
   dailyLogs: Record<string, Record<string, number>>;
+  activityDates: Record<string, true>;
   customExercises: ExerciseEntry[];
   customChallenges: Challenge[];
   savedChallenges: Challenge[];
   lastDecayDate?: string;
 }
-type Tab = 'home' | 'today' | 'missions' | 'profile'
+type Tab = 'home' | 'today' | 'progress' | 'missions' | 'profile'
 
 const XP_CONFIG = {
   levelThresholds: [0, 300, 700, 1300, 2100, 3000, 4100, 5400, 7000],
@@ -62,6 +63,7 @@ let state: TrainingState = {
   currentLevel: oldState.currentLevel ?? 1,
   exerciseTotals: oldState.exerciseTotals ?? { push: 0, run: 0 },
   dailyLogs: oldState.dailyLogs ?? {},
+  activityDates: oldState.activityDates ?? {},
   customExercises: oldState.customExercises ?? [],
   customChallenges: oldState.customChallenges ?? [],
   savedChallenges: oldState.savedChallenges ?? [...baseChallenges, ...(oldState.customChallenges ?? [])],
@@ -72,6 +74,15 @@ const challenges = () => state.savedChallenges
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
 const current = () => levels[Math.min(state.currentLevel - 1, levels.length - 1)]
 const todayLog = () => state.dailyLogs[todayKey()] ?? {}
+const hasTrainingActivity = (dateKey: string) => Boolean(state.activityDates[dateKey]) || Object.keys(state.dailyLogs[dateKey] ?? {}).length > 0
+const recordTrainingDay = (dateKey: string) => {
+  if (hasTrainingActivity(dateKey)) return false
+  state.activityDates[dateKey] = true
+  state.completed += 1
+  state.xp += XP_CONFIG.exercise.dayBonus
+  state.lastDecayDate = dateKey
+  return true
+}
 const getExerciseXpGain = (exerciseId: string) => {
   if (exerciseId === 'push') return XP_CONFIG.exercise.push
   if (exerciseId === 'run') return XP_CONFIG.exercise.run
@@ -105,8 +116,7 @@ const getLevelProgress = () => {
 }
 const applyMissedDayPenalty = () => {
   const dateKey = todayKey()
-  const hasLogsToday = Object.keys(state.dailyLogs[dateKey] ?? {}).length > 0
-  if (hasLogsToday || state.lastDecayDate === dateKey) return
+  if (hasTrainingActivity(dateKey) || state.lastDecayDate === dateKey) return
 
   const penalty = XP_CONFIG.exercise.missPenalty
   state.xp = Math.max(0, state.xp - penalty)
@@ -186,18 +196,92 @@ function exerciseVisual(kind: string, label: string) {
   return `<div class="exercise-tile ${kind}"><div class="figure" aria-hidden="true"><span class="head"></span><span class="torso"></span><span class="arm arm-a"></span><span class="arm arm-b"></span><span class="leg leg-a"></span><span class="leg leg-b"></span></div><span class="exercise-label">${label}</span></div>`
 }
 
-function renderHomeTab(level: ReturnType<typeof current>, ladderRows: string) {
+function renderHomeTab(level: ReturnType<typeof current>) {
   const progress = getLevelProgress()
   const progressWidth = `${Math.max(0, Math.min(progress.percent, 100))}%`
+  const nextRank = levels[Math.min(state.currentLevel, levels.length - 1)]
+  const nextThreshold = XP_CONFIG.levelThresholds[Math.min(state.currentLevel, XP_CONFIG.levelThresholds.length - 1)]
+  const xpToNext = Math.max(nextThreshold - state.xp, 0)
+  const objectiveText = state.currentLevel < levels.length
+    ? `${xpToNext} XP to ${nextRank.name}`
+    : 'National Level reached'
+  const battleFeed = [
+    `Training streak: ${state.completed} active days`,
+    `Quest board: ${challenges().length} missions loaded`,
+    `Next target: ${objectiveText}`,
+    `Shadow mode: ${state.challengeDone ? 'quest complete' : 'ready for battle'}`,
+  ]
   const xpRules = `
     <div class="xp-rule"><span>Push-ups : </span><strong>+${XP_CONFIG.exercise.push} XP / rep</strong></div>
     <div class="xp-rule"><span>Run : </span><strong>+${XP_CONFIG.exercise.run} XP / km</strong></div>
     <div class="xp-rule"><span>Custom exercise : </span><strong>+${XP_CONFIG.exercise.custom} XP / unit</strong></div>
     <div class="xp-rule"><span>Daily login credit : </span><strong>+${XP_CONFIG.exercise.dayBonus} XP</strong></div>
     <div class="xp-rule xp-rule-penalty"><span>Missed day : </span><strong>-${XP_CONFIG.exercise.missPenalty} XP</strong></div>`
+  const quoteSuffix = quoteIsDefault ? ' (Default)' : ''
+  let quoteMarkup = ''
+  if (quoteLoading) quoteMarkup = '<p class="quote">Loading today’s quote…</p>'
+  if (!quoteLoading && currentQuote) quoteMarkup = `<p class="quote">“${currentQuote}”${quoteSuffix}</p>`
+  const questStatus = state.challengeDone ? 'DONE' : 'LIVE'
+
   return `
-    <section class="hero-panel"><div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div><div class="hero-copy"><div><p class="muted">CURRENT RANK</p><h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1><p class="rank-name">${level.name}</p></div><div class="rank-emblem">${level.rank}<span>RANK</span></div></div><div class="xp-row"><span>TRAINING DAYS ${state.completed}</span><span>SELF-PACED</span></div><div class="xp-track"><span class="open-progress" style="width: ${progressWidth};"></span></div><div class="xp-progress-meta"><span>${state.xp} XP</span><span>${progress.currentProgress} / ${progress.totalProgress} to next</span></div><div class="xp-rules">${xpRules}</div><details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details><button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>${quoteLoading || currentQuote ? `<p class="quote">${quoteLoading ? 'Loading today’s quote…' : `“${currentQuote}”${quoteIsDefault ? ' (Default)' : ''}`}</p>` : ''}</section>
-    <section class="section-heading compact"><div><p class="kicker">YOUR PROGRESSION</p><h2>Previous progress</h2></div><span class="muted">${state.currentLevel} / 8</span></section>
+    <section class="hero-panel">
+      <div class="hero-glow hero-glow-a"></div>
+      <div class="hero-glow hero-glow-b"></div>
+      <div class="dungeon-scene" aria-hidden="true"><span class="portal-ring"></span><span class="hunter-silhouette"><i></i><i></i></span><span class="shadow-particle particle-one"></span><span class="shadow-particle particle-two"></span><span class="shadow-particle particle-three"></span></div>
+      <div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div>
+      <div class="hero-copy">
+        <div>
+          <p class="muted">CURRENT RANK</p>
+          <h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1>
+          <p class="rank-name">${level.name}</p>
+        </div>
+        <div class="rank-emblem">${level.rank}<span>RANK</span></div>
+      </div>
+      <div class="hero-metrics">
+        <div class="metric-pill"><span>XP</span><strong>${state.xp}</strong></div>
+        <div class="metric-pill"><span>STREAK</span><strong>${state.completed}</strong></div>
+        <div class="metric-pill"><span>QUEST</span><strong>${questStatus}</strong></div>
+      </div>
+      <div class="xp-row"><span>TRAINING DAYS ${state.completed}</span><span>SELF-PACED</span></div>
+      <div class="xp-track"><span class="open-progress" style="width: ${progressWidth};"></span></div>
+      <div class="xp-progress-meta"><span>${state.xp} XP</span><span>${progress.currentProgress} / ${progress.totalProgress} to next</span></div>
+      <div class="xp-rules">${xpRules}</div>
+      <details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details>
+      <button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>
+      ${quoteMarkup}
+    </section>
+
+    <section class="stat-grid">
+      <article class="stat-card stat-card-coral">
+        <span>Power</span>
+        <strong>${state.xp}</strong>
+        <small>Hunter energy</small>
+      </article>
+      <article class="stat-card stat-card-lime">
+        <span>Streak</span>
+        <strong>${state.completed}</strong>
+        <small>Training days</small>
+      </article>
+      <article class="stat-card stat-card-slate">
+        <span>Mission</span>
+        <strong>${state.challengeDone ? 'CLEARED' : 'LIVE'}</strong>
+        <small>Current quest</small>
+      </article>
+    </section>
+
+    <section class="raid-board">
+      <div class="section-heading compact raid-heading">
+        <div><p class="kicker">COMMAND FEED</p><h2>Battle status</h2></div>
+      </div>
+      <div class="battle-feed">
+        ${battleFeed.map((entry) => `<div class="feed-item"><span class="feed-dot"></span><p>${entry}</p></div>`).join('')}
+      </div>
+    </section>`
+}
+
+function renderProgressTab(ladderRows: string) {
+  return `
+    <section class="section-heading"><div><p class="kicker">YOUR PROGRESSION</p><h2>Rank path</h2></div><span class="muted">${state.currentLevel} / ${levels.length}</span></section>
     <section class="ladder"><div class="ladder-summary"><span>Total training days</span><b>${state.completed}</b></div>${ladderRows}</section>`
 }
 
@@ -250,6 +334,7 @@ function renderChallengesTab() {
     const labelY = 50 + Math.sin(radians) * 34
     return `<span class="wheel-label" style="--label-x: ${labelX}%; --label-y: ${labelY}%;">${escapeHtml(item.name)}</span>`
   }).join('')
+  const saveChallengeLabel = editingChallenge ? 'SAVE CHANGES' : 'SAVE CHALLENGE'
   const customFormMarkup = customChallengeFormOpen ? `
     <div class="custom-challenge-form" id="custom-challenge-form">
       <input id="custom-challenge-name" type="text" maxlength="30" value="${escapeHtml(editingChallenge?.name ?? '')}" placeholder="Challenge name" aria-label="Custom challenge name">
@@ -257,7 +342,7 @@ function renderChallengesTab() {
       <input id="custom-challenge-xp" type="number" min="1" max="100" value="${editingChallenge?.reward ?? 5}" aria-label="Custom challenge XP reward">
       <div class="custom-exercise-actions">
         <button class="small-button secondary-button" id="cancel-custom-challenge" type="button">CANCEL</button>
-        <button class="small-button" id="save-custom-challenge" type="button">${editingChallenge ? 'SAVE CHANGES' : 'SAVE CHALLENGE'}</button>
+        <button class="small-button" id="save-custom-challenge" type="button">${saveChallengeLabel}</button>
       </div>
     </div>` : ''
   const challengeOptions = (target: string) => challengeList.map((item) => `<button class="challenge-search-option" data-challenge-search="${target}" data-challenge-name="${escapeHtml(item.name)}" type="button">${escapeHtml(item.name)}</button>`).join('')
@@ -273,9 +358,39 @@ function renderChallengesTab() {
 }
 
 function renderProfileTab(level: ReturnType<typeof current>) {
+  const progress = getLevelProgress()
+  const badgeList = [
+    { label: 'Shadow streak', value: `${state.completed} days` },
+    { label: 'Power level', value: `${state.xp} XP` },
+    { label: 'Next rank', value: level.name },
+    { label: 'Quest status', value: state.challengeDone ? 'Cleared' : 'Active' },
+  ]
+
   return `
     <section class="section-heading"><div><p class="kicker">PLAYER PROFILE</p><h2>Hunter status</h2></div></section>
-    <section class="mission-card"><div class="profile-stat"><span>Current rank</span><b>Level ${String(state.currentLevel).padStart(2, '0')} · ${level.name}</b></div><div class="profile-stat"><span>Total training days</span><b>${state.completed}</b></div><div class="profile-stat"><span>Progress style</span><b>SELF-PACED</b></div><button class="reset-button" id="reset-progress">RESET LOCAL PROGRESS</button></section>`
+    <section class="mission-card profile-hero">
+      <div class="profile-hero-main">
+        <div class="avatar-ring">${String(state.currentLevel).padStart(2, '0')}</div>
+        <div>
+          <p class="muted">RANK</p>
+          <h3>Level ${String(state.currentLevel).padStart(2, '0')}</h3>
+          <p class="profile-rank-name">${level.name}</p>
+        </div>
+      </div>
+      <div class="profile-progress-wrap">
+        <div class="profile-progress-meta"><span>Progress to next tier</span><strong>${progress.currentProgress}/${progress.totalProgress}</strong></div>
+        <div class="xp-track"><span class="open-progress" style="width: ${Math.min(progress.percent, 100)}%;"></span></div>
+      </div>
+    </section>
+    <section class="achievement-grid">
+      ${badgeList.map((badge) => `
+        <article class="achievement-card">
+          <span>${badge.label}</span>
+          <strong>${badge.value}</strong>
+        </article>
+      `).join('')}
+    </section>
+    <section class="mission-card"><div class="profile-stat"><span>Current rank</span><b>Level ${String(state.currentLevel).padStart(2, '0')} · ${level.name}</b></div><div class="profile-stat"><span>Total training days</span><b>${state.completed}</b></div><div class="profile-stat"><span>Progress style</span><b>SELF-PACED</b></div><div class="profile-stat"><span>Active quests</span><b>${challenges().length}</b></div><button class="reset-button" id="reset-progress">RESET LOCAL PROGRESS</button></section>`
 }
 
 function render() {
@@ -291,8 +406,9 @@ function render() {
   }).join('')
 
   let tabContent = ''
-  if (activeTab === 'home') tabContent = renderHomeTab(level, ladderRows)
+  if (activeTab === 'home') tabContent = renderHomeTab(level)
   if (activeTab === 'today') tabContent = renderTodayTab(log, todayLabel)
+  if (activeTab === 'progress') tabContent = renderProgressTab(ladderRows)
   if (activeTab === 'missions') tabContent = renderChallengesTab()
   if (activeTab === 'profile') tabContent = renderProfileTab(level)
 
@@ -302,7 +418,7 @@ function render() {
     <div class="app-shell">
       <header class="topbar"><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><div class="header-status"><span class="status-dot"></span> ${todayLabel}</div><button class="icon-button" id="profile" aria-label="Open profile">◎</button></header>
       <main id="top">${tabContent}</main>
-      <nav class="bottom-nav">${navItem('home', '⌂', 'HOME')}${navItem('today', '◒', "TODAY'S LOG")}${navItem('missions', '✦', 'CHALLENGES')}${navItem('profile', '◉', 'PROFILE')}</nav>
+      <nav class="bottom-nav">${navItem('home', '⌂', 'HOME')}${navItem('today', '◒', "TODAY'S LOG")}${navItem('progress', '▥', 'PROGRESS')}${navItem('missions', '✦', 'CHALLENGES')}${navItem('profile', '◉', 'PROFILE')}</nav>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       ${resetConfirmationOpen ? `<div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-dialog-title">
         <div class="confirmation-backdrop" id="cancel-reset"></div>
@@ -339,16 +455,11 @@ function render() {
     const date = todayKey()
     const dayLog = state.dailyLogs[date] ?? {}
     if (dayLog[id] !== undefined) { showToast('This exercise is already logged for today'); return }
-    const wasNewDay = Object.keys(dayLog).length === 0
+    recordTrainingDay(date)
     const enteredCount = Math.floor(quantity)
     dayLog[id] = enteredCount
     state.dailyLogs[date] = dayLog
     state.exerciseTotals[id] = (state.exerciseTotals[id] ?? 0) + enteredCount
-    if (wasNewDay) {
-      state.completed += 1
-      state.xp += XP_CONFIG.exercise.dayBonus
-    }
-
     const xpGain = getExerciseXpGain(id) * enteredCount
     const xpText = id === 'run' ? `${enteredCount} km` : `${enteredCount} reps`
     state.xp += xpGain
@@ -521,7 +632,9 @@ function render() {
     if (challengeSpinning) return
     challengeSpinning = true
     const challengeList = challenges()
-    const nextChallengeIndex = Math.floor(Math.random() * challengeList.length)
+    const randomValues = new Uint32Array(1)
+    const randomIndex = crypto.getRandomValues(randomValues)[0] % challengeList.length
+    const nextChallengeIndex = randomIndex
     const segmentDegrees = 360 / challengeList.length
     const targetDegrees = 360 - (nextChallengeIndex * segmentDegrees)
     const currentDegrees = challengeWheelRotation % 360
@@ -543,6 +656,7 @@ function render() {
   document.querySelector('#challenge-button')?.addEventListener('click', () => {
     if (state.challengeDone) return
     const challenge = challenges()[selectedChallengeIndex]
+    recordTrainingDay(todayKey())
     state.challengeDone = true
     state.xp += challenge.reward
     syncLevelFromXp()
@@ -562,7 +676,7 @@ function render() {
   document.querySelector('#confirm-reset')?.addEventListener('click', () => {
     resetConfirmationOpen = false
 
-    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], lastDecayDate: undefined }
+    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], lastDecayDate: undefined }
     save()
     render()
     showToast('Progress reset to Level 1')
