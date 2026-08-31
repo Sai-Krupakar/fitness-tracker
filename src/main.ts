@@ -1,14 +1,17 @@
 import './style.css'
 
 type ExerciseEntry = { id: string; label: string }
+type Challenge = { name: string; detail: string; reward: number; className: string }
 type TrainingState = {
   completed: number;
-  missionDone: boolean;
+  challengeDone: boolean;
   xp: number;
   currentLevel: number;
   exerciseTotals: Record<string, number>;
   dailyLogs: Record<string, Record<string, number>>;
   customExercises: ExerciseEntry[];
+  customChallenges: Challenge[];
+  savedChallenges: Challenge[];
   lastDecayDate?: string;
 }
 type Tab = 'home' | 'today' | 'missions' | 'profile'
@@ -34,11 +37,19 @@ const levels = [
   { name: 'Shadow Monarch', rank: '07', push: '25 x 4', squat: '25 x 4', core: '25 x 4', run: '8 km', xp: 5400 },
   { name: 'National Level', rank: '08', push: '100 total', squat: '100 total', core: '100 total', run: '10 km', xp: 7000 },
 ]
-const missions = [
-  { letter: 'A', name: 'Agility drills', detail: '3 rounds · 30 seconds each' },
-  { letter: 'B', name: 'Beginner burpees', detail: '10 controlled reps' },
-  { letter: 'C', name: 'Calf raises', detail: '20 controlled reps' },
-  { letter: 'D', name: 'Diamond push-up progression', detail: '8 controlled reps' },
+const baseChallenges: Challenge[] = [
+  { name: 'Power ladder', detail: 'Complete 5 rounds: 15 push-ups, 20 squats, and 30 high knees. Rest 90 seconds between rounds.', reward: 8, className: 'power' },
+  { name: 'Core hold', detail: 'Complete 5 rounds: 60-second plank, 20 dead bugs, and 20 slow mountain climbers. Rest 90 seconds between rounds.', reward: 7, className: 'core' },
+  { name: 'Run the line', detail: 'Walk or run for 40 minutes at a sustainable pace. Take brief water breaks as needed.', reward: 9, className: 'run' },
+  { name: 'Mobility reset', detail: 'Move through 40 minutes of full-body mobility: hips, ankles, shoulders, spine, and hamstrings.', reward: 5, className: 'mobility' },
+  { name: 'Lower body burst', detail: 'Complete 5 rounds: 25 squats, 16 reverse lunges per side, and 20 glute bridges. Rest 90 seconds.', reward: 8, className: 'lower' },
+  { name: 'Balance builder', detail: 'Complete 5 rounds: 60-second single-leg balance per side, 20 calf raises, and 12 lateral lunges per side.', reward: 6, className: 'balance' },
+  { name: 'Wall sit', detail: 'Complete 5 rounds: 75-second wall sit, 20 squats, and 16 step-back lunges per side. Rest 90 seconds.', reward: 7, className: 'lower' },
+  { name: 'Step up', detail: 'Complete 5 rounds: 25 step-ups per side, 15 incline push-ups, and 30 marching high knees. Rest 90 seconds.', reward: 8, className: 'power' },
+  { name: 'Easy stride', detail: 'Take a brisk 40-minute walk. Add a 60-second faster interval every 5 minutes.', reward: 5, className: 'run' },
+  { name: 'Dead bug drill', detail: 'Complete 5 rounds: 20 dead bugs per side, 20 bird dogs per side, and a 60-second side plank per side.', reward: 7, className: 'core' },
+  { name: 'Hip opener', detail: 'Spend 40 minutes on hip mobility: deep squat holds, 90/90 switches, hip flexor stretches, and gentle lunges.', reward: 5, className: 'mobility' },
+  { name: 'Calf raise set', detail: 'Complete 5 rounds: 35 calf raises, 20 tibialis raises, 16 split squats per side, and 60 seconds of balance.', reward: 6, className: 'balance' },
 ]
 const stored = localStorage.getItem('level-up-state')
 const oldState = stored ? JSON.parse(stored) : {}
@@ -46,15 +57,19 @@ const localDateKey = (date: Date) => { const year = date.getFullYear(); const mo
 const todayKey = () => localDateKey(new Date())
 let state: TrainingState = {
   completed: oldState.completed ?? 0,
-  missionDone: oldState.missionDone ?? false,
+  challengeDone: oldState.challengeDone ?? oldState.missionDone ?? false,
   xp: oldState.xp ?? 0,
   currentLevel: oldState.currentLevel ?? 1,
   exerciseTotals: oldState.exerciseTotals ?? { push: 0, run: 0 },
   dailyLogs: oldState.dailyLogs ?? {},
   customExercises: oldState.customExercises ?? [],
+  customChallenges: oldState.customChallenges ?? [],
+  savedChallenges: oldState.savedChallenges ?? [...baseChallenges, ...(oldState.customChallenges ?? [])],
   lastDecayDate: oldState.lastDecayDate,
 }
 const save = () => localStorage.setItem('level-up-state', JSON.stringify(state))
+const challenges = () => state.savedChallenges
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
 const current = () => levels[Math.min(state.currentLevel - 1, levels.length - 1)]
 const todayLog = () => state.dailyLogs[todayKey()] ?? {}
 const getExerciseXpGain = (exerciseId: string) => {
@@ -138,6 +153,11 @@ let quoteIsDefault = false
 let customExerciseFormOpen = false
 let resetConfirmationOpen = false
 let pendingExerciseDeletion: ExerciseEntry | null = null
+let selectedChallengeIndex = 0
+let challengeWheelRotation = 0
+let challengeSpinning = false
+let customChallengeFormOpen = false
+let editingChallengeIndex: number | null = null
 async function loadQuote() {
   quoteLoading = true
   render()
@@ -218,10 +238,38 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
     <section class="mission-card"><div class="mission-top"><div><span class="mission-tag">FLEXIBLE DAILY LOG</span><h3>What did you complete?</h3><p>Enter the real count for each exercise. No fixed daily requirement.</p></div><div class="quest-symbol">◈</div></div><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button">ADD EXERCISE</button></div><div class="metrics"><div><b>${state.completed}</b><span>total training days</span></div></div></section>`
 }
 
-function renderMissionsTab(mission: typeof missions[number]) {
+function renderChallengesTab() {
+  const challengeList = challenges()
+  const challenge = challengeList[selectedChallengeIndex] ?? challengeList[0]
+  const editingChallenge = editingChallengeIndex === null ? null : challengeList[editingChallengeIndex]
+  const segmentDegrees = 360 / challengeList.length
+  const wheelLabels = challengeList.map((item, index) => {
+    const labelAngle = index * segmentDegrees
+    const radians = (labelAngle - 90) * (Math.PI / 180)
+    const labelX = 50 + Math.cos(radians) * 34
+    const labelY = 50 + Math.sin(radians) * 34
+    return `<span class="wheel-label" style="--label-x: ${labelX}%; --label-y: ${labelY}%;">${escapeHtml(item.name)}</span>`
+  }).join('')
+  const customFormMarkup = customChallengeFormOpen ? `
+    <div class="custom-challenge-form" id="custom-challenge-form">
+      <input id="custom-challenge-name" type="text" maxlength="30" value="${escapeHtml(editingChallenge?.name ?? '')}" placeholder="Challenge name" aria-label="Custom challenge name">
+      <textarea id="custom-challenge-detail" maxlength="180" placeholder="Workout details" aria-label="Custom challenge details">${escapeHtml(editingChallenge?.detail ?? '')}</textarea>
+      <input id="custom-challenge-xp" type="number" min="1" max="100" value="${editingChallenge?.reward ?? 5}" aria-label="Custom challenge XP reward">
+      <div class="custom-exercise-actions">
+        <button class="small-button secondary-button" id="cancel-custom-challenge" type="button">CANCEL</button>
+        <button class="small-button" id="save-custom-challenge" type="button">${editingChallenge ? 'SAVE CHANGES' : 'SAVE CHALLENGE'}</button>
+      </div>
+    </div>` : ''
+  const challengeOptions = (target: string) => challengeList.map((item) => `<button class="challenge-search-option" data-challenge-search="${target}" data-challenge-name="${escapeHtml(item.name)}" type="button">${escapeHtml(item.name)}</button>`).join('')
+  const challengeManagementMarkup = customChallengeFormOpen ? '' : `
+    <div class="challenge-management">
+      <div class="challenge-management-row"><div class="challenge-search"><label for="edit-challenge-search">EDIT CHALLENGE</label><input id="edit-challenge-search" type="search" placeholder="Type to search"><div class="challenge-search-options">${challengeOptions('edit')}</div></div><button class="small-button" id="edit-challenge" type="button">EDIT</button></div>
+      <div class="challenge-management-row"><div class="challenge-search"><label for="delete-challenge-search">DELETE CHALLENGE</label><input id="delete-challenge-search" type="search" placeholder="Type to search"><div class="challenge-search-options">${challengeOptions('delete')}</div></div><button class="small-button delete-custom-challenge" id="delete-challenge" type="button">DELETE</button></div>
+    </div>`
   return `
-    <section class="section-heading"><div><p class="kicker">COMMUNITY MISSION</p><h2>A–Z challenge</h2></div><span class="mission-count">${mission.letter}</span></section>
-    <section class="community-card"><div class="letter-badge">${mission.letter}</div><div class="community-copy"><h3>${mission.name}</h3><p>${mission.detail}</p><span class="community-hint">Top safe comment decides next week</span></div><button class="small-button" id="mission-button">${state.missionDone ? 'DONE' : 'LOG'} <span>↗</span></button></section>`
+    <section class="section-heading"><div><p class="kicker">DAILY CHALLENGE</p><h2>Spin for your quest</h2></div><span class="mission-count">+ XP</span></section>
+    <section class="challenge-wheel-panel"><div class="wheel-pointer" aria-hidden="true"></div><div class="challenge-wheel ${challengeSpinning ? 'is-spinning' : ''}" style="--wheel-rotation: ${challengeWheelRotation}deg; --segment-size: ${segmentDegrees}deg;">${wheelLabels}<span class="wheel-hub">SPIN</span></div><button class="spin-button" id="spin-challenge" type="button" ${challengeSpinning ? 'disabled' : ''}>${challengeSpinning ? 'SPINNING...' : 'SPIN THE WHEEL'}</button></section>
+    <section class="challenge-result ${challenge.className}"><p class="kicker">YOUR CHALLENGE</p><h3>${escapeHtml(challenge.name)}</h3><p>${escapeHtml(challenge.detail)}</p><div class="challenge-footer"><span>REWARD <b>+${challenge.reward} XP</b></span><button class="small-button" id="challenge-button" type="button" ${state.challengeDone ? 'disabled' : ''}>${state.challengeDone ? 'COMPLETED' : 'COMPLETE'} <span>↗</span></button></div>${customFormMarkup}<button class="small-button add-custom-challenge" id="add-custom-challenge" type="button">ADD CHALLENGE</button>${challengeManagementMarkup}</section>`
 }
 
 function renderProfileTab(level: ReturnType<typeof current>) {
@@ -232,7 +280,6 @@ function renderProfileTab(level: ReturnType<typeof current>) {
 
 function render() {
   const level = current()
-  const mission = missions[(state.currentLevel - 1) % missions.length]
   const log = todayLog()
   const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
   const ladderRows = levels.map((item, index) => {
@@ -246,7 +293,7 @@ function render() {
   let tabContent = ''
   if (activeTab === 'home') tabContent = renderHomeTab(level, ladderRows)
   if (activeTab === 'today') tabContent = renderTodayTab(log, todayLabel)
-  if (activeTab === 'missions') tabContent = renderMissionsTab(mission)
+  if (activeTab === 'missions') tabContent = renderChallengesTab()
   if (activeTab === 'profile') tabContent = renderProfileTab(level)
 
   const navItem = (tab: Tab, icon: string, label: string) => `<a class="${activeTab === tab ? 'active' : ''}" data-tab="${tab}" href="#${tab}"><span>${icon}</span>${label}</a>`
@@ -255,7 +302,7 @@ function render() {
     <div class="app-shell">
       <header class="topbar"><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><div class="header-status"><span class="status-dot"></span> ${todayLabel}</div><button class="icon-button" id="profile" aria-label="Open profile">◎</button></header>
       <main id="top">${tabContent}</main>
-      <nav class="bottom-nav">${navItem('home', '⌂', 'HOME')}${navItem('today', '◒', "TODAY'S LOG")}${navItem('missions', '✦', 'MISSIONS')}${navItem('profile', '◉', 'PROFILE')}</nav>
+      <nav class="bottom-nav">${navItem('home', '⌂', 'HOME')}${navItem('today', '◒', "TODAY'S LOG")}${navItem('missions', '✦', 'CHALLENGES')}${navItem('profile', '◉', 'PROFILE')}</nav>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       ${resetConfirmationOpen ? `<div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-dialog-title">
         <div class="confirmation-backdrop" id="cancel-reset"></div>
@@ -375,7 +422,134 @@ function render() {
     render()
   }))
 
-  document.querySelector('#mission-button')?.addEventListener('click', () => { state.missionDone = !state.missionDone; state.xp = Math.max(0, state.xp + (state.missionDone ? 35 : -20)); syncLevelFromXp(); save(); render(); showToast(state.missionDone ? 'A–Z mission logged · +35 XP' : 'A–Z mission removed') })
+  const openCustomChallengeForm = () => {
+    editingChallengeIndex = null
+    customChallengeFormOpen = true
+    render()
+    requestAnimationFrame(() => document.querySelector<HTMLInputElement>('#custom-challenge-name')?.focus())
+  }
+  document.querySelector('#add-custom-challenge')?.addEventListener('click', () => openCustomChallengeForm())
+  document.querySelector('#cancel-custom-challenge')?.addEventListener('click', () => {
+    customChallengeFormOpen = false
+    editingChallengeIndex = null
+    render()
+  })
+  document.querySelector('#save-custom-challenge')?.addEventListener('click', () => {
+    const name = document.querySelector<HTMLInputElement>('#custom-challenge-name')?.value.trim() ?? ''
+    const detail = document.querySelector<HTMLTextAreaElement>('#custom-challenge-detail')?.value.trim() ?? ''
+    const reward = Number(document.querySelector<HTMLInputElement>('#custom-challenge-xp')?.value)
+    if (!name || !detail || !Number.isInteger(reward) || reward < 1 || reward > 100) {
+      showToast('Enter a name, workout details, and 1-100 XP')
+      return
+    }
+    const hasDuplicateName = challenges().some((challenge, index) => {
+      const isCurrentChallenge = editingChallengeIndex !== null && index === editingChallengeIndex
+      return challenge.name.toLowerCase() === name.toLowerCase() && !isCurrentChallenge
+    })
+    if (hasDuplicateName) {
+      showToast('This challenge already exists')
+      return
+    }
+    if (editingChallengeIndex === null) {
+      state.savedChallenges.push({ name, detail, reward, className: 'custom' })
+    } else {
+      state.savedChallenges[editingChallengeIndex] = { name, detail, reward, className: state.savedChallenges[editingChallengeIndex]?.className ?? 'custom' }
+    }
+    customChallengeFormOpen = false
+    editingChallengeIndex = null
+    save()
+    render()
+    showToast(`${name} saved`)
+  })
+  document.querySelectorAll<HTMLInputElement>('.challenge-search input').forEach((input) => {
+    const search = () => {
+      const query = input.value.trim().toLowerCase()
+      input.closest('.challenge-search')?.classList.add('is-open')
+      input.parentElement?.querySelectorAll<HTMLButtonElement>('.challenge-search-option').forEach((option) => {
+        option.hidden = !option.textContent?.toLowerCase().includes(query)
+      })
+    }
+    input.addEventListener('focus', search)
+    input.addEventListener('input', search)
+  })
+  document.addEventListener('click', (event) => {
+    const target = event.target as Node
+    document.querySelectorAll<HTMLElement>('.challenge-search.is-open').forEach((search) => {
+      if (!search.contains(target)) search.classList.remove('is-open')
+    })
+  })
+  document.querySelectorAll<HTMLButtonElement>('.challenge-search-option').forEach((option) => option.addEventListener('click', () => {
+    const target = option.dataset.challengeSearch
+    const input = document.querySelector<HTMLInputElement>(`#${target}-challenge-search`)
+    if (!input) return
+    input.value = option.dataset.challengeName ?? ''
+    input.closest('.challenge-search')?.classList.remove('is-open')
+  }))
+  const findChallengeIndex = (name: string) => challenges().findIndex((challenge) => challenge.name.toLowerCase() === name.trim().toLowerCase())
+  document.querySelector('#edit-challenge')?.addEventListener('click', () => {
+    const name = document.querySelector<HTMLInputElement>('#edit-challenge-search')?.value ?? ''
+    const challengeIndex = findChallengeIndex(name)
+    if (challengeIndex < 0) {
+      showToast('Select a challenge from the list')
+      return
+    }
+    editingChallengeIndex = challengeIndex
+    customChallengeFormOpen = true
+    render()
+  })
+  document.querySelector('#delete-challenge')?.addEventListener('click', () => {
+    if (state.savedChallenges.length === 1) {
+      showToast('Keep at least one challenge on the wheel')
+      return
+    }
+    const name = document.querySelector<HTMLInputElement>('#delete-challenge-search')?.value ?? ''
+    const challengeIndex = findChallengeIndex(name)
+    const challenge = state.savedChallenges[challengeIndex]
+    if (!challenge) {
+      showToast('Select a challenge from the list')
+      return
+    }
+    state.savedChallenges.splice(challengeIndex, 1)
+    selectedChallengeIndex = 0
+    state.challengeDone = false
+    save()
+    render()
+    showToast(`${challenge.name} deleted`)
+  })
+
+  document.querySelector('#spin-challenge')?.addEventListener('click', () => {
+    if (challengeSpinning) return
+    challengeSpinning = true
+    const challengeList = challenges()
+    const nextChallengeIndex = Math.floor(Math.random() * challengeList.length)
+    const segmentDegrees = 360 / challengeList.length
+    const targetDegrees = 360 - (nextChallengeIndex * segmentDegrees)
+    const currentDegrees = challengeWheelRotation % 360
+    const nextRotation = challengeWheelRotation + 2160 + targetDegrees - currentDegrees
+    render()
+    requestAnimationFrame(() => {
+      challengeWheelRotation = nextRotation
+      document.querySelector<HTMLElement>('.challenge-wheel')?.style.setProperty('--wheel-rotation', `${challengeWheelRotation}deg`)
+    })
+    window.setTimeout(() => {
+      selectedChallengeIndex = nextChallengeIndex
+      state.challengeDone = false
+      challengeSpinning = false
+      save()
+      render()
+      showToast(`${challengeList[nextChallengeIndex].name} selected`)
+    }, 5000)
+  })
+  document.querySelector('#challenge-button')?.addEventListener('click', () => {
+    if (state.challengeDone) return
+    const challenge = challenges()[selectedChallengeIndex]
+    state.challengeDone = true
+    state.xp += challenge.reward
+    syncLevelFromXp()
+    save()
+    render()
+    showToast(`${challenge.name} completed · +${challenge.reward} XP`)
+  })
   document.querySelector('#profile')?.addEventListener('click', () => { activeTab = 'profile'; render() })
   document.querySelector('#reset-progress')?.addEventListener('click', () => {
     resetConfirmationOpen = true
@@ -388,7 +562,7 @@ function render() {
   document.querySelector('#confirm-reset')?.addEventListener('click', () => {
     resetConfirmationOpen = false
 
-    state = { completed: 0, missionDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, customExercises: [], lastDecayDate: undefined }
+    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], lastDecayDate: undefined }
     save()
     render()
     showToast('Progress reset to Level 1')
