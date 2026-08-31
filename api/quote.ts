@@ -35,7 +35,7 @@ async function fetchGroq(apiKey: string, topics: string, wantsAttribution: boole
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: 'groq/compound-mini',
       messages: [{ role: 'user', content: buildPrompt(topics, wantsAttribution) }],
       temperature: 0.9,
     }),
@@ -69,7 +69,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? await fetchGroq(groqKey, topics, wantsAttribution)
       : await fetchGemini(geminiKey!, topics, wantsAttribution)
     res.status(200).json({ text })
-  } catch {
+  } catch (error) {
+    console.error('Quote generation failed', error)
     res.status(502).json({ error: 'Quote generation failed' })
   }
 }

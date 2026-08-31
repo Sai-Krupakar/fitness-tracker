@@ -6,6 +6,8 @@ kept only in the Vercel serverless function, never in the browser or APK.
 Groq is used when `GROQ_API_KEY` is configured. Otherwise, Gemini is used when
 `GEMINI_API_KEY` is configured. There is no random or local quote fallback.
 
+The Groq integration uses the free `groq/compound-mini` model.
+
 ## 1. Choose a provider and get an API key
 
 For Groq, create a free API key at [GroqCloud](https://console.groq.com/keys).
