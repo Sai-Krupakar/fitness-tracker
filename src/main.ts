@@ -167,12 +167,16 @@ const TAG_OPTIONS = [
 const storedTags = localStorage.getItem('level-up-quote-tags')
 let selectedTags: string[] = storedTags ? JSON.parse(storedTags).map((tag: string) => tag === 'gym' ? 'exercise' : tag) : ['exercise', 'motivational']
 const saveTags = () => localStorage.setItem('level-up-quote-tags', JSON.stringify(selectedTags))
+const storedCustomQuotes = localStorage.getItem('level-up-custom-quotes')
+let customQuotes: string[] = storedCustomQuotes ? JSON.parse(storedCustomQuotes) : []
+const saveCustomQuotes = () => localStorage.setItem('level-up-custom-quotes', JSON.stringify(customQuotes))
 
 let activeTab: Tab = 'home'
 let tagDropdownOpen = false
 let currentQuote: string | null = null
 let quoteLoading = false
 let quoteIsDefault = false
+let customQuoteFormOpen = false
 let customExerciseFormOpen = false
 let resetConfirmationOpen = false
 let pendingExerciseDeletion: ExerciseEntry | null = null
@@ -244,7 +248,11 @@ function renderHomeTab(level: ReturnType<typeof current>) {
       <div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div>
       ${quoteMarkup}
       <details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details>
-      <button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>
+      <div class="quote-actions">
+        <button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>
+        <button class="small-button custom-quote-button" id="add-custom-quote" type="button">ADD OWN QUOTE</button>
+      </div>
+      ${customQuoteFormOpen ? `<div class="custom-quote-form" id="custom-quote-form"><textarea id="custom-quote-text" maxlength="240" placeholder="Write your own quote" aria-label="Your own quote"></textarea><div class="custom-quote-actions"><button class="small-button secondary-button" id="cancel-custom-quote" type="button">CANCEL</button><button class="small-button" id="save-custom-quote" type="button">SAVE QUOTE</button></div></div>` : ''}
       <div class="hero-content">
         <div class="hero-details">
           <div class="hero-copy">
@@ -254,7 +262,7 @@ function renderHomeTab(level: ReturnType<typeof current>) {
               <p class="rank-name">${level.name}</p>
             </div>
             <div class="hero-rank-visual">
-              <video class="hero-rank-video" autoplay muted loop playsinline aria-label="Cultural mountain town video">
+              <video class="app-video hero-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Cultural mountain town video">
                 <source src="${mountainTownVideo}" type="video/mp4">
               </video>
             </div>
@@ -285,7 +293,7 @@ function renderProgressTab(ladderRows: string) {
         <section class="ladder"><div class="ladder-summary"><span>Total training days</span><b>${state.completed}</b></div>${ladderRows}</section>
       </div>
       <div class="progress-rank-visual">
-        <video class="progress-rank-video" autoplay muted loop playsinline aria-label="Pattern storage video">
+        <video class="app-video progress-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Pattern storage video">
           <source src="${patternStorageVideo}" type="video/mp4">
         </video>
       </div>
@@ -335,7 +343,7 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
         <h2>Today's target achieved.</h2>
         <p class="today-completion-quote">ARISE. TODAY'S QUEST IS COMPLETE.</p>
         <div class="today-completion-visual">
-          <video autoplay muted loop playsinline aria-label="Travel packing inspiration video">
+          <video class="app-video" autoplay muted loop playsinline preload="auto" aria-label="Travel packing inspiration video">
             <source src="${travelPackingVideo}" type="video/mp4">
           </video>
         </div>
@@ -350,7 +358,7 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
         <section class="mission-card"><div class="mission-top"><div><span class="mission-tag">FLEXIBLE DAILY LOG</span><h3>What did you complete?</h3><p>Enter the real count for each exercise. No fixed daily requirement.</p></div><div class="quest-symbol">◈</div></div><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button">ADD EXERCISE</button></div></section>
       </div>
       <div class="today-log-visual">
-        <video class="today-log-video" autoplay muted loop playsinline aria-label="Old money outfit inspiration video">
+        <video class="app-video today-log-video" autoplay muted loop playsinline preload="auto" aria-label="Old money outfit inspiration video">
           <source src="${oldMoneyOutfitVideo}" type="video/mp4">
         </video>
         <button class="small-button complete-day-button" id="complete-today" type="button">COMPLETED TODAY'S TARGET</button>
@@ -422,7 +430,7 @@ function renderProfileTab(level: ReturnType<typeof current>) {
         </div>
       </div>
       <div class="profile-rank-visual">
-        <video class="profile-rank-video" autoplay muted loop playsinline aria-label="Summer outfit inspiration video">
+        <video class="app-video profile-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Summer outfit inspiration video">
           <source src="${summerOutfitVideo}" type="video/mp4">
         </video>
       </div>
@@ -498,6 +506,12 @@ function render() {
       </div>` : ''}
     </div>`
 
+  document.querySelectorAll<HTMLVideoElement>('video.app-video').forEach((video) => {
+    const revealVideo = () => video.classList.add('is-ready')
+    video.addEventListener('canplay', revealVideo, { once: true })
+    if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) revealVideo()
+  })
+
   const showToast = (message: string) => { const toast = document.querySelector<HTMLDivElement>('#toast'); if (!toast) { return }; toast.textContent = message; toast.classList.add('visible'); window.setTimeout(() => toast.classList.remove('visible'), 2200) }
   document.querySelectorAll<HTMLButtonElement>('.add-exercise').forEach((button) => button.addEventListener('click', () => {
     const id = button.dataset.exercise
@@ -535,6 +549,29 @@ function render() {
     render()
   }))
   document.querySelector('#generate-quote')?.addEventListener('click', () => loadQuote())
+  document.querySelector('#add-custom-quote')?.addEventListener('click', () => {
+    customQuoteFormOpen = true
+    render()
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('#custom-quote-text')?.focus())
+  })
+  document.querySelector('#cancel-custom-quote')?.addEventListener('click', () => {
+    customQuoteFormOpen = false
+    render()
+  })
+  document.querySelector('#save-custom-quote')?.addEventListener('click', () => {
+    const quote = document.querySelector<HTMLTextAreaElement>('#custom-quote-text')?.value.trim() ?? ''
+    if (!quote) {
+      showToast('Write a quote first')
+      return
+    }
+    customQuotes.push(quote)
+    saveCustomQuotes()
+    currentQuote = quote
+    quoteIsDefault = false
+    customQuoteFormOpen = false
+    render()
+    showToast('Your quote was added')
+  })
   document.querySelector('#system-stats-info')?.addEventListener('click', () => {
     systemInfoOpen = !systemInfoOpen
     render()
