@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
   appId: 'com.levelup.trainingarc',
-  appName: 'Level Up Training Arc',
+  appName: 'Solo Levelling',
   webDir: 'dist',
 }
 

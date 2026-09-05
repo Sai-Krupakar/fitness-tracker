@@ -1,4 +1,9 @@
 import './style.css'
+import mountainTownVideo from './assets/From Klickpin.com- Cultural mountain town stories for people who love beauty for creative people to pin for future adve-pin-id-907686499886846221.mp4'
+import patternStorageVideo from './assets/From Klickpin.com- Practical pattern storage tips with charm and useful ideas this season for stylish handmade days-pin-id-921267667539985906.mp4'
+import oldMoneyOutfitVideo from './assets/From Klickpin.com- Chic old money outfit ideas that make everyday moments look more intentional memorable and beautifully styled for busy people w.mp4'
+import travelPackingVideo from './assets/From Klickpin.com- Pin these 28 Practical travel packing tips that are worth saving if you love elegant details and creative inspiration for begin.mp4'
+import summerOutfitVideo from './assets/From Klickpin.com- Try Simple summer outfit ideas that can instantly upgrade your look room party or daily routine for your next inspiration board.mp4'
 
 type ExerciseEntry = { id: string; label: string }
 type Challenge = { name: string; detail: string; reward: number; className: string }
@@ -20,7 +25,7 @@ type Tab = 'home' | 'today' | 'progress' | 'missions' | 'profile'
 const XP_CONFIG = {
   levelThresholds: [0, 300, 700, 1300, 2100, 3000, 4100, 5400, 7000],
   exercise: {
-    push: 0.2,
+    push: 0.1,
     run: 5,
     custom: 0.1,
     dayBonus: 1,
@@ -75,6 +80,14 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => (
 const current = () => levels[Math.min(state.currentLevel - 1, levels.length - 1)]
 const todayLog = () => state.dailyLogs[todayKey()] ?? {}
 const hasTrainingActivity = (dateKey: string) => Boolean(state.activityDates[dateKey]) || Object.keys(state.dailyLogs[dateKey] ?? {}).length > 0
+const hunterTitle = () => ['The Awakened', 'Iron Will', 'Dungeon Breaker', 'Distance Hunter', 'Elite Vanguard', 'Commanding Force', 'Shadow Sovereign', 'National Hunter'][state.currentLevel - 1] ?? 'National Hunter'
+const hunterStats = () => [
+  { label: 'STR', value: Math.floor((state.exerciseTotals.push ?? 0) / 10), detail: 'Strength' },
+  { label: 'VIT', value: state.completed, detail: 'Vitality' },
+  { label: 'AGI', value: Math.floor(state.exerciseTotals.run ?? 0), detail: 'Agility' },
+  { label: 'END', value: Object.keys(state.activityDates).length, detail: 'Endurance' },
+  { label: 'DEX', value: state.customExercises.length, detail: 'Dexterity' },
+]
 const recordTrainingDay = (dateKey: string) => {
   if (hasTrainingActivity(dateKey)) return false
   state.activityDates[dateKey] = true
@@ -168,6 +181,8 @@ let challengeWheelRotation = 0
 let challengeSpinning = false
 let customChallengeFormOpen = false
 let editingChallengeIndex: number | null = null
+let todayCompletionOpen = false
+let systemInfoOpen = false
 async function loadQuote() {
   quoteLoading = true
   render()
@@ -206,7 +221,7 @@ function renderHomeTab(level: ReturnType<typeof current>) {
     ? `${xpToNext} XP to ${nextRank.name}`
     : 'National Level reached'
   const battleFeed = [
-    `Training streak: ${state.completed} active days`,
+    `Training days: ${state.completed} total`,
     `Quest board: ${challenges().length} missions loaded`,
     `Next target: ${objectiveText}`,
     `Shadow mode: ${state.challengeDone ? 'quest complete' : 'ready for battle'}`,
@@ -232,57 +247,56 @@ function renderHomeTab(level: ReturnType<typeof current>) {
       ${quoteMarkup}
       <details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details>
       <button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>
-      <div class="hero-copy">
-        <div>
-          <p class="muted">CURRENT RANK</p>
-          <h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1>
-          <p class="rank-name">${level.name}</p>
+      <div class="hero-content">
+        <div class="hero-details">
+          <div class="hero-copy">
+            <div>
+              <p class="muted">CURRENT RANK</p>
+              <h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1>
+              <p class="rank-name">${level.name}</p>
+            </div>
+          </div>
+          <div class="hero-metrics">
+            <div class="metric-pill"><span>XP</span><strong>${state.xp}</strong></div>
+            <div class="metric-pill"><span>TOTAL DAYS</span><strong>${state.completed}</strong></div>
+            <div class="metric-pill"><span>QUEST</span><strong>${questStatus}</strong></div>
+          </div>
+          <div class="xp-row"><span>SELF-PACED</span></div>
+          <div class="xp-track"><span class="open-progress" style="width: ${progressWidth};"></span></div>
+          <div class="xp-progress-meta"><span>${state.xp} XP</span><span>${progress.currentProgress} / ${progress.totalProgress} to next</span></div>
+          <div class="xp-rules">${xpRules}</div>
         </div>
-        <div class="rank-emblem">${level.rank}<span>RANK</span></div>
+        <div class="hero-rank-visual">
+          <video class="hero-rank-video" autoplay muted loop playsinline aria-label="Cultural mountain town video">
+            <source src="${mountainTownVideo}" type="video/mp4">
+          </video>
+        </div>
       </div>
-      <div class="hero-metrics">
-        <div class="metric-pill"><span>XP</span><strong>${state.xp}</strong></div>
-        <div class="metric-pill"><span>STREAK</span><strong>${state.completed}</strong></div>
-        <div class="metric-pill"><span>QUEST</span><strong>${questStatus}</strong></div>
-      </div>
-      <div class="xp-row"><span>TRAINING DAYS ${state.completed}</span><span>SELF-PACED</span></div>
-      <div class="xp-track"><span class="open-progress" style="width: ${progressWidth};"></span></div>
-      <div class="xp-progress-meta"><span>${state.xp} XP</span><span>${progress.currentProgress} / ${progress.totalProgress} to next</span></div>
-      <div class="xp-rules">${xpRules}</div>
     </section>
 
-    <section class="stat-grid">
-      <article class="stat-card stat-card-coral">
-        <span>Power</span>
-        <strong>${state.xp}</strong>
-        <small>Hunter energy</small>
-      </article>
-      <article class="stat-card stat-card-lime">
-        <span>Streak</span>
-        <strong>${state.completed}</strong>
-        <small>Training days</small>
-      </article>
-      <article class="stat-card stat-card-slate">
-        <span>Mission</span>
-        <strong>${state.challengeDone ? 'CLEARED' : 'LIVE'}</strong>
-        <small>Current quest</small>
-      </article>
-    </section>
-
-    <section class="raid-board">
+    <!-- <section class="raid-board">
       <div class="section-heading compact raid-heading">
         <div><p class="kicker">COMMAND FEED</p><h2>Battle status</h2></div>
       </div>
       <div class="battle-feed">
         ${battleFeed.map((entry) => `<div class="feed-item"><span class="feed-dot"></span><p>${entry}</p></div>`).join('')}
       </div>
-    </section>`
+    </section> -->`
 }
 
 function renderProgressTab(ladderRows: string) {
   return `
-    <section class="section-heading"><div><p class="kicker">YOUR PROGRESSION</p><h2>Rank path</h2></div><span class="muted">${state.currentLevel} / ${levels.length}</span></section>
-    <section class="ladder"><div class="ladder-summary"><span>Total training days</span><b>${state.completed}</b></div>${ladderRows}</section>`
+    <section class="progress-layout">
+      <div class="progress-details">
+        <section class="section-heading"><div><p class="kicker">YOUR PROGRESSION</p><h2>Rank path</h2></div><span class="muted">${state.currentLevel} / ${levels.length}</span></section>
+        <section class="ladder"><div class="ladder-summary"><span>Total training days</span><b>${state.completed}</b></div>${ladderRows}</section>
+      </div>
+      <div class="progress-rank-visual">
+        <video class="progress-rank-video" autoplay muted loop playsinline aria-label="Pattern storage video">
+          <source src="${patternStorageVideo}" type="video/mp4">
+        </video>
+      </div>
+    </section>`
 }
 
 function renderTodayTab(log: Record<string, number>, todayLabel: string) {
@@ -299,11 +313,15 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
 
     return `
       <div class="log-item ${isLoggedToday ? 'logged-today' : ''}">
-        <span class="check-figure ${exercise.icon}">${exerciseVisual(exercise.icon, '')}</span>
-        <span class="check-copy"><b>${exercise.label}</b>${exerciseDetail}</span>
-        <input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" value="${isLoggedToday ? loggedQuantity : ''}" placeholder="0" aria-label="${exercise.label} count" ${isLoggedToday ? 'disabled' : ''}>
-        <button class="small-button add-exercise" data-exercise="${exercise.id}" type="button" ${isLoggedToday ? 'disabled' : ''}>${isLoggedToday ? 'LOGGED' : 'ADD'}</button>
-        ${deleteButton}
+        <div class="log-summary">
+          <span class="check-figure ${exercise.icon}">${exerciseVisual(exercise.icon, '')}</span>
+          <span class="check-copy"><b>${exercise.label}</b>${exerciseDetail}</span>
+        </div>
+        <div class="log-actions">
+          <input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" value="${isLoggedToday ? loggedQuantity : ''}" placeholder="0" aria-label="${exercise.label} count" ${isLoggedToday ? 'disabled' : ''}>
+          <button class="small-button add-exercise" data-exercise="${exercise.id}" type="button" ${isLoggedToday ? 'disabled' : ''}>${isLoggedToday ? 'LOGGED' : 'ADD'}</button>
+          ${deleteButton}
+        </div>
       </div>
     `
   }).join('')
@@ -317,9 +335,35 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
       </div>
     </div>` : ''
 
+  if (todayCompletionOpen) {
+    return `
+      <section class="today-completion">
+        <p class="kicker">TARGET CLEARED</p>
+        <h2>Today's target achieved.</h2>
+        <p class="today-completion-quote">ARISE. TODAY'S QUEST IS COMPLETE.</p>
+        <div class="today-completion-visual">
+          <video autoplay muted loop playsinline aria-label="Travel packing inspiration video">
+            <source src="${travelPackingVideo}" type="video/mp4">
+          </video>
+        </div>
+        <button class="small-button" id="return-to-today-log" type="button">BACK TO TODAY'S LOG</button>
+      </section>`
+  }
+
   return `
-    <section class="section-heading"><div><p class="kicker">${todayLabel.toUpperCase()}</p><h2>Log your training</h2></div><span class="day-chip">${Object.keys(log).length} EXERCISES</span></section>
-    <section class="mission-card"><div class="mission-top"><div><span class="mission-tag">FLEXIBLE DAILY LOG</span><h3>What did you complete?</h3><p>Enter the real count for each exercise. No fixed daily requirement.</p></div><div class="quest-symbol">◈</div></div><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button">ADD EXERCISE</button></div><div class="metrics"><div><b>${state.completed}</b><span>total training days</span></div></div></section>`
+    <section class="today-log-layout">
+      <div class="today-log-details">
+        <section class="section-heading"><div><p class="kicker">${todayLabel.toUpperCase()}</p><h2>Log your training</h2></div><span class="day-chip">${Object.keys(log).length} EXERCISES</span></section>
+        <section class="mission-card"><div class="mission-top"><div><span class="mission-tag">FLEXIBLE DAILY LOG</span><h3>What did you complete?</h3><p>Enter the real count for each exercise. No fixed daily requirement.</p></div><div class="quest-symbol">◈</div></div><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button">ADD EXERCISE</button></div></section>
+      </div>
+      <div class="today-log-visual">
+        <video class="today-log-video" autoplay muted loop playsinline aria-label="Old money outfit inspiration video">
+          <source src="${oldMoneyOutfitVideo}" type="video/mp4">
+        </video>
+        <button class="small-button complete-day-button" id="complete-today" type="button">COMPLETED TODAY'S TARGET</button>
+      </div>
+    </section>
+    `
 }
 
 function renderChallengesTab() {
@@ -359,27 +403,35 @@ function renderChallengesTab() {
 
 function renderProfileTab(level: ReturnType<typeof current>) {
   const progress = getLevelProgress()
+  const stats = hunterStats()
   const badgeList = [
-    { label: 'Shadow streak', value: `${state.completed} days` },
+    { label: 'Hunter title', value: hunterTitle() },
+    { label: 'Training days', value: `${state.completed} days` },
     { label: 'Power level', value: `${state.xp} XP` },
     { label: 'Next rank', value: level.name },
-    { label: 'Quest status', value: state.challengeDone ? 'Cleared' : 'Active' },
   ]
 
   return `
     <section class="section-heading"><div><p class="kicker">PLAYER PROFILE</p><h2>Hunter status</h2></div></section>
     <section class="mission-card profile-hero">
-      <div class="profile-hero-main">
-        <div class="avatar-ring">${String(state.currentLevel).padStart(2, '0')}</div>
-        <div>
-          <p class="muted">RANK</p>
-          <h3>Level ${String(state.currentLevel).padStart(2, '0')}</h3>
-          <p class="profile-rank-name">${level.name}</p>
+      <div class="profile-details">
+        <div class="profile-hero-main">
+          <div class="avatar-ring">${String(state.currentLevel).padStart(2, '0')}</div>
+          <div>
+            <p class="muted">RANK</p>
+            <h3>Level ${String(state.currentLevel).padStart(2, '0')}</h3>
+            <p class="profile-rank-name">${level.name}</p>
+          </div>
+        </div>
+        <div class="profile-progress-wrap">
+          <div class="profile-progress-meta"><span>Progress to next tier</span><strong>${progress.currentProgress}/${progress.totalProgress}</strong></div>
+          <div class="xp-track"><span class="open-progress" style="width: ${Math.min(progress.percent, 100)}%;"></span></div>
         </div>
       </div>
-      <div class="profile-progress-wrap">
-        <div class="profile-progress-meta"><span>Progress to next tier</span><strong>${progress.currentProgress}/${progress.totalProgress}</strong></div>
-        <div class="xp-track"><span class="open-progress" style="width: ${Math.min(progress.percent, 100)}%;"></span></div>
+      <div class="profile-rank-visual">
+        <video class="profile-rank-video" autoplay muted loop playsinline aria-label="Summer outfit inspiration video">
+          <source src="${summerOutfitVideo}" type="video/mp4">
+        </video>
       </div>
     </section>
     <section class="achievement-grid">
@@ -389,6 +441,13 @@ function renderProfileTab(level: ReturnType<typeof current>) {
           <strong>${badge.value}</strong>
         </article>
       `).join('')}
+    </section>
+    <section class="system-stats" aria-label="Hunter stats">
+      <div class="system-stats-heading"><p class="kicker">SYSTEM STATUS</p><div class="system-stats-live"><span>LIVE VALUES</span><button class="system-info-button" id="system-stats-info" type="button" aria-label="How Hunter stats are calculated" aria-expanded="${systemInfoOpen}">i</button></div></div>
+      ${systemInfoOpen ? `<div class="system-stats-info" id="system-stats-explanation"><p>Values are calculated from your saved training activity.</p><ul><li><b>STR</b> = total push-ups / 10</li><li><b>VIT</b> = completed training days</li><li><b>AGI</b> = total run distance in km</li><li><b>END</b> = days with recorded activity</li><li><b>DEX</b> = custom exercises created</li></ul></div>` : ''}
+      <div class="system-stats-grid">
+        ${stats.map((stat) => `<div class="system-stat"><b>${stat.label}</b><strong>${stat.value}</strong><span>${stat.detail}</span></div>`).join('')}
+      </div>
     </section>
     <section class="mission-card"><div class="profile-stat"><span>Current rank</span><b>Level ${String(state.currentLevel).padStart(2, '0')} · ${level.name}</b></div><div class="profile-stat"><span>Total training days</span><b>${state.completed}</b></div><div class="profile-stat"><span>Progress style</span><b>SELF-PACED</b></div><div class="profile-stat"><span>Active quests</span><b>${challenges().length}</b></div><button class="reset-button" id="reset-progress">RESET LOCAL PROGRESS</button></section>`
 }
@@ -467,6 +526,14 @@ function render() {
     syncLevelFromXp()
     save(); render(); showToast(`${xpText} logged · +${xpGain.toFixed(1)} XP`)
   }))
+  document.querySelector('#complete-today')?.addEventListener('click', () => {
+    todayCompletionOpen = true
+    render()
+  })
+  document.querySelector('#return-to-today-log')?.addEventListener('click', () => {
+    todayCompletionOpen = false
+    render()
+  })
   document.querySelector('#quote-tags')?.addEventListener('toggle', (event) => { tagDropdownOpen = (event.target as HTMLDetailsElement).open })
   document.querySelectorAll<HTMLInputElement>('.tag-options input[data-tag]').forEach((checkbox) => checkbox.addEventListener('change', () => {
     selectedTags = Array.from(document.querySelectorAll<HTMLInputElement>('.tag-options input[data-tag]:checked')).map((input) => input.dataset.tag as string)
@@ -475,6 +542,10 @@ function render() {
     render()
   }))
   document.querySelector('#generate-quote')?.addEventListener('click', () => loadQuote())
+  document.querySelector('#system-stats-info')?.addEventListener('click', () => {
+    systemInfoOpen = !systemInfoOpen
+    render()
+  })
 
   const customInput = document.querySelector<HTMLInputElement>('#custom-exercise-name')
   const openCustomForm = () => {
