@@ -236,8 +236,6 @@ function renderHomeTab(level: ReturnType<typeof current>) {
   let quoteMarkup = ''
   if (quoteLoading) quoteMarkup = '<p class="quote">Loading today’s quote…</p>'
   if (!quoteLoading && currentQuote) quoteMarkup = `<p class="quote">“${currentQuote}”${quoteSuffix}</p>`
-  const questStatus = state.challengeDone ? 'DONE' : 'LIVE'
-
   return `
     <section class="hero-panel">
       <div class="hero-glow hero-glow-a"></div>
@@ -255,21 +253,16 @@ function renderHomeTab(level: ReturnType<typeof current>) {
               <h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1>
               <p class="rank-name">${level.name}</p>
             </div>
-          </div>
-          <div class="hero-metrics">
-            <div class="metric-pill"><span>XP</span><strong>${state.xp}</strong></div>
-            <div class="metric-pill"><span>TOTAL DAYS</span><strong>${state.completed}</strong></div>
-            <div class="metric-pill"><span>QUEST</span><strong>${questStatus}</strong></div>
+            <div class="hero-rank-visual">
+              <video class="hero-rank-video" autoplay muted loop playsinline aria-label="Cultural mountain town video">
+                <source src="${mountainTownVideo}" type="video/mp4">
+              </video>
+            </div>
           </div>
           <div class="xp-row"><span>SELF-PACED</span></div>
           <div class="xp-track"><span class="open-progress" style="width: ${progressWidth};"></span></div>
           <div class="xp-progress-meta"><span>${state.xp} XP</span><span>${progress.currentProgress} / ${progress.totalProgress} to next</span></div>
           <div class="xp-rules">${xpRules}</div>
-        </div>
-        <div class="hero-rank-visual">
-          <video class="hero-rank-video" autoplay muted loop playsinline aria-label="Cultural mountain town video">
-            <source src="${mountainTownVideo}" type="video/mp4">
-          </video>
         </div>
       </div>
     </section>
