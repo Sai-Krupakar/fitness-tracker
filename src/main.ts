@@ -5,7 +5,7 @@ import oldMoneyOutfitVideo from './assets/From Klickpin.com- Chic old money outf
 import travelPackingVideo from './assets/From Klickpin.com- Pin these 28 Practical travel packing tips that are worth saving if you love elegant details and creative inspiration for begin.mp4'
 import summerOutfitVideo from './assets/From Klickpin.com- Try Simple summer outfit ideas that can instantly upgrade your look room party or daily routine for your next inspiration board.mp4'
 
-type ExerciseEntry = { id: string; label: string }
+type ExerciseEntry = { id: string; label: string; xpPerUnit: number; unitLabel: string }
 type Challenge = { name: string; detail: string; reward: number; className: string }
 type TrainingState = {
   completed: number;
@@ -69,7 +69,12 @@ let state: TrainingState = {
   exerciseTotals: oldState.exerciseTotals ?? { push: 0, run: 0 },
   dailyLogs: oldState.dailyLogs ?? {},
   activityDates: oldState.activityDates ?? {},
-  customExercises: oldState.customExercises ?? [],
+  customExercises: (oldState.customExercises ?? []).map((exercise: Partial<ExerciseEntry>) => ({
+    id: exercise.id ?? buildExerciseId(exercise.label ?? 'exercise'),
+    label: exercise.label ?? 'Custom exercise',
+    xpPerUnit: Number.isFinite(exercise.xpPerUnit) && Number(exercise.xpPerUnit) > 0 ? Number(exercise.xpPerUnit) : XP_CONFIG.exercise.custom,
+    unitLabel: exercise.unitLabel?.trim() || 'unit',
+  })),
   customChallenges: oldState.customChallenges ?? [],
   savedChallenges: oldState.savedChallenges ?? [...baseChallenges, ...(oldState.customChallenges ?? [])],
   lastDecayDate: oldState.lastDecayDate,
@@ -99,12 +104,13 @@ const recordTrainingDay = (dateKey: string) => {
 const getExerciseXpGain = (exerciseId: string) => {
   if (exerciseId === 'push') return XP_CONFIG.exercise.push
   if (exerciseId === 'run') return XP_CONFIG.exercise.run
-  return XP_CONFIG.exercise.custom
+  return state.customExercises.find((exercise) => exercise.id === exerciseId)?.xpPerUnit ?? XP_CONFIG.exercise.custom
 }
 const getExerciseXpLabel = (exerciseId: string) => {
   if (exerciseId === 'push') return `+${XP_CONFIG.exercise.push} XP / rep`
   if (exerciseId === 'run') return `+${XP_CONFIG.exercise.run} XP / km`
-  return `+${XP_CONFIG.exercise.custom} XP / unit`
+  const exercise = state.customExercises.find((item) => item.id === exerciseId)
+  return `+${exercise?.xpPerUnit ?? XP_CONFIG.exercise.custom} XP / ${exercise?.unitLabel ?? 'unit'}`
 }
 const syncLevelFromXp = () => {
   let nextLevel = 1
@@ -143,7 +149,7 @@ const baseExercises = [
 ] as const
 const exercises = () => [
   ...baseExercises.map((exercise) => ({ ...exercise })),
-  ...state.customExercises.map((exercise) => ({ id: exercise.id, label: exercise.label, icon: 'custom' }))
+  ...state.customExercises.map((exercise) => ({ ...exercise, icon: 'custom' }))
 ]
 
 const buildExerciseId = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `exercise-${Date.now()}`
@@ -307,7 +313,7 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
     const isLoggedToday = loggedQuantity !== undefined
     const exerciseDetail = isLoggedToday
       ? `<small><span>All-time total: ${state.exerciseTotals[exercise.id] ?? 0}</span><span>Logged today: ${loggedQuantity}</span><span>Available tomorrow</span></small>`
-      : `<small>All-time total: ${state.exerciseTotals[exercise.id] ?? 0} • ${getExerciseXpLabel(exercise.id)}</small>`
+      : `<small><span>All-time total: ${state.exerciseTotals[exercise.id] ?? 0}</span><span>${getExerciseXpLabel(exercise.id)}</span></small>`
     const deleteButton = isCustom
       ? `<button class="small-button delete-custom-exercise" data-exercise="${exercise.id}" type="button">DELETE</button>`
       : ''
@@ -330,6 +336,11 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
   const customFormMarkup = customExerciseFormOpen ? `
     <div class="custom-exercise-form" id="custom-exercise-form">
       <input id="custom-exercise-name" type="text" maxlength="30" placeholder="Exercise name" aria-label="Custom exercise name">
+      <div class="custom-exercise-rate">
+        <input id="custom-exercise-xp" type="number" min="0.1" step="0.1" value="0.1" placeholder="XP" aria-label="XP earned per unit">
+        <span>XP per</span>
+        <input id="custom-exercise-unit" type="text" maxlength="12" value="unit" placeholder="unit" aria-label="Exercise unit label">
+      </div>
       <div class="custom-exercise-actions">
         <button class="small-button secondary-button" id="cancel-custom-exercise" type="button">CANCEL</button>
         <button class="small-button" id="save-custom-exercise" type="button">SAVE</button>
@@ -355,7 +366,7 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
     <section class="today-log-layout">
       <div class="today-log-details">
         <section class="section-heading"><div><p class="kicker">${todayLabel.toUpperCase()}</p><h2>Log your training</h2></div><span class="day-chip">${Object.keys(log).length} EXERCISES</span></section>
-        <section class="mission-card"><div class="mission-top"><div><span class="mission-tag">FLEXIBLE DAILY LOG</span><h3>What did you complete?</h3><p>Enter the real count for each exercise. No fixed daily requirement.</p></div><div class="quest-symbol">◈</div></div><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button">ADD EXERCISE</button></div></section>
+        <section class="mission-card"><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button">ADD EXERCISE</button></div></section>
       </div>
       <div class="today-log-visual">
         <video class="app-video today-log-video" autoplay muted loop playsinline preload="auto" aria-label="Old money outfit inspiration video">
@@ -602,8 +613,14 @@ function render() {
 
   document.querySelector('#save-custom-exercise')?.addEventListener('click', () => {
     const customName = customInput?.value.trim() ?? ''
+    const xpPerUnit = Number(document.querySelector<HTMLInputElement>('#custom-exercise-xp')?.value)
+    const unitLabel = document.querySelector<HTMLInputElement>('#custom-exercise-unit')?.value.trim() ?? ''
     if (!customName) {
       showToast('Enter an exercise name')
+      return
+    }
+    if (!Number.isFinite(xpPerUnit) || xpPerUnit <= 0 || !unitLabel) {
+      showToast('Enter XP per unit and a unit name')
       return
     }
 
@@ -616,7 +633,7 @@ function render() {
     }
 
     const customId = buildExerciseId(customName)
-    state.customExercises.push({ id: customId, label: customName })
+    state.customExercises.push({ id: customId, label: customName, xpPerUnit, unitLabel })
     state.exerciseTotals[customId] = state.exerciseTotals[customId] ?? 0
     save()
     closeCustomForm()
