@@ -254,6 +254,7 @@ main { padding: 20px 18px 30px; }.hero-panel { position: relative; overflow: hid
 
 .today-log-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 14px; align-items: stretch; }
 .today-log-details { min-width: 0; }
+.today-mode-layout .small-button:disabled:not(.attendance-button) { opacity: .45; cursor: not-allowed; }
 .today-log-visual { position: relative; min-height: 370px; max-height: 580px; margin-top: 30px; overflow: hidden; border: 1px solid rgba(199,242,105,.35); background: #101416; clip-path: polygon(16% 0, 100% 0, 100% 84%, 84% 100%, 0 100%, 0 16%); }
 .today-log-visual::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(16,20,22,.06), rgba(16,20,22,.65)); pointer-events: none; }
 .today-log-visual .today-log-video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; transform: scaleY(1.25); transform-origin: top; }
@@ -574,4 +575,179 @@ main { padding: 20px 18px 30px; }.hero-panel { position: relative; overflow: hid
   min-height: 36px;
   margin: 0;
   text-align: center;
+}
+
+.today-mode-picker {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.today-choice-visual {
+  position: relative;
+  width: 100%;
+  aspect-ratio: .933 / 1;
+  overflow: hidden;
+  border: 1px solid rgba(199,242,105,.35);
+  background: #101416;
+  clip-path: polygon(0 0, 96% 0, 100% 12%, 100% 100%, 4% 100%, 0 88%);
+}
+
+.today-choice-visual .app-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.today-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.today-mode-option {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 82px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  text-align: left;
+}
+
+.today-mode-option b {
+  color: var(--lime);
+  font: 700 10px var(--mono);
+}
+
+.today-mode-option span {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.recovery-option {
+  border-color: rgba(255,117,91,.45);
+}
+
+.recovery-option b {
+  color: var(--coral);
+}
+
+.today-mode-option:hover {
+  border-color: var(--lime);
+  background: #202d2d;
+}
+
+.recovery-option:hover {
+  border-color: var(--coral);
+}
+
+.today-mode-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.today-mode-toolbar .kicker {
+  margin: 0;
+}
+
+.today-mode-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 0;
+}
+
+.today-mode-actions .small-button {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 8px;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.attendance-button {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+
+.attendance-button:disabled {
+  opacity: .82;
+  cursor: default;
+}
+
+.change-day-mode {
+  width: auto;
+  min-height: 34px;
+  margin: 0;
+  padding: 8px;
+  border-color: var(--line);
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.recovery-intro {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.recovery-guidance > div {
+  display: grid;
+  grid-template-columns: minmax(86px, auto) minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.recovery-guidance b {
+  color: var(--lime);
+  font: 700 9px var(--mono);
+  text-transform: uppercase;
+}
+
+.recovery-guidance span {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+@media (max-width: 380px) {
+  .today-choice-visual { aspect-ratio: .933 / 1; }
+  .today-mode-options { gap: 7px; }
+  .today-mode-option { min-height: 78px; padding: 10px; }
+  .today-mode-option span { font-size: 13px; }
+}
+
+@media (max-width: 420px) {
+  .today-mode-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .today-mode-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .today-mode-actions .small-button {
+    width: 100%;
+    padding-inline: 5px;
+    font-size: 7px;
+  }
 }

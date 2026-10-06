@@ -7,6 +7,7 @@ import summerOutfitVideo from './assets/From Klickpin.com- Try Simple summer out
 
 type ExerciseEntry = { id: string; label: string; xpPerUnit: number; unitLabel: string }
 type Challenge = { name: string; detail: string; reward: number; className: string }
+type DayMode = 'training' | 'recovery'
 type TrainingState = {
   completed: number;
   challengeDone: boolean;
@@ -15,10 +16,11 @@ type TrainingState = {
   exerciseTotals: Record<string, number>;
   dailyLogs: Record<string, Record<string, number>>;
   activityDates: Record<string, true>;
+  attendanceDates: Record<string, DayMode>;
   customExercises: ExerciseEntry[];
   customChallenges: Challenge[];
   savedChallenges: Challenge[];
-  lastDecayDate?: string;
+  lastAttendanceCheckDate?: string;
 }
 type Tab = 'home' | 'today' | 'progress' | 'missions' | 'profile'
 
@@ -28,7 +30,8 @@ const XP_CONFIG = {
     push: 0.1,
     run: 5,
     custom: 0.1,
-    dayBonus: 1,
+    trainingAttendanceBonus: 1,
+    recoveryAttendanceBonus: 2,
     missPenalty: 5,
   },
 } as const
@@ -69,6 +72,7 @@ let state: TrainingState = {
   exerciseTotals: oldState.exerciseTotals ?? { push: 0, run: 0 },
   dailyLogs: oldState.dailyLogs ?? {},
   activityDates: oldState.activityDates ?? {},
+  attendanceDates: oldState.attendanceDates ?? {},
   customExercises: (oldState.customExercises ?? []).map((exercise: Partial<ExerciseEntry>) => ({
     id: exercise.id ?? buildExerciseId(exercise.label ?? 'exercise'),
     label: exercise.label ?? 'Custom exercise',
@@ -77,7 +81,7 @@ let state: TrainingState = {
   })),
   customChallenges: oldState.customChallenges ?? [],
   savedChallenges: oldState.savedChallenges ?? [...baseChallenges, ...(oldState.customChallenges ?? [])],
-  lastDecayDate: oldState.lastDecayDate,
+  lastAttendanceCheckDate: oldState.lastAttendanceCheckDate ?? oldState.lastDecayDate,
 }
 const save = () => localStorage.setItem('level-up-state', JSON.stringify(state))
 const challenges = () => state.savedChallenges
@@ -90,16 +94,34 @@ const hunterStats = () => [
   { label: 'STR', value: Math.floor((state.exerciseTotals.push ?? 0) / 10), detail: 'Strength' },
   { label: 'VIT', value: state.completed, detail: 'Vitality' },
   { label: 'AGI', value: Math.floor(state.exerciseTotals.run ?? 0), detail: 'Agility' },
-  { label: 'END', value: Object.keys(state.activityDates).length, detail: 'Endurance' },
+  { label: 'END', value: new Set([...Object.keys(state.activityDates), ...Object.keys(state.attendanceDates)]).size, detail: 'Endurance' },
   { label: 'DEX', value: state.customExercises.length, detail: 'Dexterity' },
 ]
 const recordTrainingDay = (dateKey: string) => {
   if (hasTrainingActivity(dateKey)) return false
   state.activityDates[dateKey] = true
   state.completed += 1
-  state.xp += XP_CONFIG.exercise.dayBonus
-  state.lastDecayDate = dateKey
   return true
+}
+const getNextDateKey = (dateKey: string) => {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return localDateKey(new Date(year, month - 1, day + 1))
+}
+const getAttendanceCredit = (mode: DayMode) => mode === 'training'
+  ? XP_CONFIG.exercise.trainingAttendanceBonus
+  : XP_CONFIG.exercise.recoveryAttendanceBonus
+const recordAttendance = (mode: DayMode) => {
+  const dateKey = todayKey()
+  if (state.attendanceDates[dateKey]) return null
+
+  state.attendanceDates[dateKey] = mode
+  if (mode === 'training') recordTrainingDay(dateKey)
+
+  const credit = getAttendanceCredit(mode)
+  state.xp += credit
+  syncLevelFromXp()
+  save()
+  return credit
 }
 const getExerciseXpGain = (exerciseId: string) => {
   if (exerciseId === 'push') return XP_CONFIG.exercise.push
@@ -133,13 +155,25 @@ const getLevelProgress = () => {
     percent: Math.min((currentProgress / totalProgress) * 100, 100),
   }
 }
-const applyMissedDayPenalty = () => {
-  const dateKey = todayKey()
-  if (hasTrainingActivity(dateKey) || state.lastDecayDate === dateKey) return
+const applyMissedDayPenalties = () => {
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const throughDate = localDateKey(yesterday)
 
-  const penalty = XP_CONFIG.exercise.missPenalty
-  state.xp = Math.max(0, state.xp - penalty)
-  state.lastDecayDate = dateKey
+  if (!state.lastAttendanceCheckDate) {
+    state.lastAttendanceCheckDate = throughDate
+    save()
+    return
+  }
+
+  let dateKey = getNextDateKey(state.lastAttendanceCheckDate)
+  while (dateKey <= throughDate) {
+    if (!state.attendanceDates[dateKey] && !hasTrainingActivity(dateKey)) {
+      state.xp = Math.max(0, state.xp - XP_CONFIG.exercise.missPenalty)
+    }
+    state.lastAttendanceCheckDate = dateKey
+    dateKey = getNextDateKey(dateKey)
+  }
   syncLevelFromXp()
   save()
 }
@@ -192,6 +226,7 @@ let challengeSpinning = false
 let customChallengeFormOpen = false
 let editingChallengeIndex: number | null = null
 let todayCompletionOpen = false
+let todayMode: 'choose' | 'training' | 'recovery' = 'choose'
 let systemInfoOpen = false
 async function loadQuote() {
   quoteLoading = true
@@ -203,13 +238,18 @@ async function loadQuote() {
     // The APK bundles static files locally, so VITE_API_BASE_URL must point at the deployed proxy.
     const apiBase = import.meta.env.VITE_API_BASE_URL ?? ''
     const response = await fetch(`${apiBase}/api/quote?tags=${encodeURIComponent(promptTags)}&attributed=${wantsAuthor}`)
-    if (!response.ok) throw new Error('quote proxy failed')
-    const data = await response.json() as { text: string }
-    if (!data.text) throw new Error('empty proxy quote')
+    const data = await response.json().catch(() => null) as { text?: string; error?: string } | null
+    if (!response.ok) throw new Error(data?.error ?? 'Quote service is unavailable. Please try again.')
+    if (!data?.text) throw new Error(data?.error ?? 'Quote service returned an empty response. Please try again.')
     currentQuote = data.text
     quoteIsDefault = false
-  } catch {
-    currentQuote = 'Unable to generate a quote right now. Please try again.'
+  } catch (error) {
+    console.error('Quote request failed', error)
+    currentQuote = error instanceof TypeError
+      ? 'Unable to reach the quote service. Check your internet connection.'
+      : error instanceof Error
+        ? error.message
+        : 'Unable to generate a quote right now. Please try again.'
     quoteIsDefault = false
   } finally {
     quoteLoading = false
@@ -240,7 +280,8 @@ function renderHomeTab(level: ReturnType<typeof current>) {
     <div class="xp-rule"><span>Push-ups : </span><strong>+${XP_CONFIG.exercise.push} XP / rep</strong></div>
     <div class="xp-rule"><span>Run : </span><strong>+${XP_CONFIG.exercise.run} XP / km</strong></div>
     <div class="xp-rule"><span>Custom exercise : </span><strong>+${XP_CONFIG.exercise.custom} XP / unit</strong></div>
-    <div class="xp-rule"><span>Daily login credit : </span><strong>+${XP_CONFIG.exercise.dayBonus} XP</strong></div>
+    <div class="xp-rule"><span>Training attendance : </span><strong>+${XP_CONFIG.exercise.trainingAttendanceBonus} XP</strong></div>
+    <div class="xp-rule"><span>Recovery attendance : </span><strong>+${XP_CONFIG.exercise.recoveryAttendanceBonus} XP</strong></div>
     <div class="xp-rule xp-rule-penalty"><span>Missed day : </span><strong>-${XP_CONFIG.exercise.missPenalty} XP</strong></div>`
   const quoteSuffix = quoteIsDefault ? ' (Default)' : ''
   let quoteMarkup = ''
@@ -307,6 +348,12 @@ function renderProgressTab(ladderRows: string) {
 }
 
 function renderTodayTab(log: Record<string, number>, todayLabel: string) {
+  const attendanceForToday = state.attendanceDates[todayKey()]
+  if (attendanceForToday) todayMode = attendanceForToday
+  const hasLoggedTrainingToday = Object.values(log).some((quantity) => quantity > 0)
+  const changeDayTypeButton = attendanceForToday
+    ? '<button class="small-button change-day-mode" type="button" disabled>CHANGE DAY TYPE</button>'
+    : '<button class="small-button change-day-mode" id="change-today-mode" type="button">CHANGE DAY TYPE</button>'
   const exerciseList = exercises().map((exercise) => {
     const isCustom = !baseExercises.some((baseExercise) => baseExercise.id === exercise.id)
     const loggedQuantity = log[exercise.id]
@@ -325,8 +372,8 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
           <span class="check-copy"><b>${exercise.label}</b>${exerciseDetail}</span>
         </div>
         <div class="log-actions">
-          <input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" value="${isLoggedToday ? loggedQuantity : ''}" placeholder="0" aria-label="${exercise.label} count" ${isLoggedToday ? 'disabled' : ''}>
-          <button class="small-button add-exercise" data-exercise="${exercise.id}" type="button" ${isLoggedToday ? 'disabled' : ''}>${isLoggedToday ? 'LOGGED' : 'ADD'}</button>
+          <input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" value="${isLoggedToday ? loggedQuantity : ''}" placeholder="0" aria-label="${exercise.label} count" ${isLoggedToday || !attendanceForToday ? 'disabled' : ''}>
+          <button class="small-button add-exercise" data-exercise="${exercise.id}" type="button" ${isLoggedToday || !attendanceForToday ? 'disabled' : ''}>${isLoggedToday ? 'LOGGED' : 'ADD'}</button>
           ${deleteButton}
         </div>
       </div>
@@ -348,31 +395,69 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
     </div>` : ''
 
   if (todayCompletionOpen) {
+    const isRecoveryDay = todayMode === 'recovery'
     return `
       <section class="today-completion">
-        <p class="kicker">TARGET CLEARED</p>
-        <h2>Today's target achieved.</h2>
-        <p class="today-completion-quote">ARISE. TODAY'S QUEST IS COMPLETE.</p>
+        <p class="kicker">${isRecoveryDay ? 'RECOVERY COMPLETE' : 'TARGET CLEARED'}</p>
+        <h2>${isRecoveryDay ? 'You made space to reset.' : "Today's target achieved."}</h2>
+        <p class="today-completion-quote">${isRecoveryDay ? 'REST IS PART OF THE TRAINING ARC.' : "ARISE. TODAY'S QUEST IS COMPLETE."}</p>
         <div class="today-completion-visual">
           <video class="app-video" autoplay muted loop playsinline preload="auto" aria-label="Travel packing inspiration video">
             <source src="${travelPackingVideo}" type="video/mp4">
           </video>
         </div>
-        <button class="small-button" id="return-to-today-log" type="button">BACK TO TODAY'S LOG</button>
+        <button class="small-button" id="return-to-today-log" type="button">${isRecoveryDay ? 'BACK TO RECOVERY DAY' : "BACK TO TODAY'S LOG"}</button>
+      </section>`
+  }
+
+  if (todayMode === 'choose') {
+    return `
+      <section class="today-mode-picker" aria-label="Choose today's plan">
+        <div class="today-choice-visual">
+          <video class="app-video" autoplay muted loop playsinline preload="auto" aria-label="A calm view for today's plan">
+            <source src="${oldMoneyOutfitVideo}" type="video/mp4">
+          </video>
+        </div>
+        <div class="today-mode-options">
+          <button class="today-mode-option training-option" data-today-mode="training" type="button"><b>TRAINING DAY</b><span>Run, push-ups, and your exercise log</span></button>
+          <button class="today-mode-option recovery-option" data-today-mode="recovery" type="button"><b>RECOVERY DAY</b><span>Easy movement, a view, and a reset</span></button>
+        </div>
+      </section>`
+  }
+
+  const selectedDayMode: DayMode = todayMode === 'recovery' ? 'recovery' : 'training'
+  const attendanceButtonMarkup = attendanceForToday
+    ? `<button class="small-button attendance-button" type="button" disabled>ATTENDANCE RECORDED · +${getAttendanceCredit(attendanceForToday)} XP</button>`
+    : `<button class="small-button attendance-button" id="record-attendance" type="button">MARK ATTENDANCE · +${getAttendanceCredit(selectedDayMode)} XP</button>`
+  const canCompleteToday = Boolean(attendanceForToday) && (todayMode === 'recovery' || hasLoggedTrainingToday)
+  const completeTodayButton = `<button class="small-button complete-day-button" id="complete-today" type="button" ${canCompleteToday ? '' : 'disabled'}>COMPLETED TODAY'S TARGET</button>`
+
+  if (todayMode === 'recovery') {
+    return `
+      <section class="today-mode-layout">
+        <div class="today-log-details">
+          <div class="today-mode-toolbar"><p class="kicker">RECOVERY DAY</p><div class="today-mode-actions">${attendanceButtonMarkup}${changeDayTypeButton}</div></div>
+          <section class="section-heading"><div><p class="kicker">MOVE GENTLY</p><h2>A lighter day, your pace.</h2></div></section>
+          <section class="mission-card recovery-card">
+            <p class="recovery-intro">No workout target today. Give your body room to recover and enjoy moving without pressure.</p>
+            <div class="recovery-guidance">
+              <div><b>Easy walk</b><span>Take a relaxed walk and enjoy the view.</span></div>
+              <div><b>Gentle movement</b><span>Stretch or move in a way that feels comfortable.</span></div>
+              <div><b>Mental reset</b><span>Pause, breathe, and get ready for your next session.</span></div>
+            </div>
+          </section>
+          ${completeTodayButton}
+        </div>
       </section>`
   }
 
   return `
-    <section class="today-log-layout">
+    <section class="today-mode-layout">
       <div class="today-log-details">
+        <div class="today-mode-toolbar"><p class="kicker">TRAINING DAY</p><div class="today-mode-actions">${attendanceButtonMarkup}${changeDayTypeButton}</div></div>
         <section class="section-heading"><div><p class="kicker">${todayLabel.toUpperCase()}</p><h2>Log your training</h2></div><span class="day-chip">${Object.keys(log).length} EXERCISES</span></section>
-        <section class="mission-card"><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button">ADD EXERCISE</button></div></section>
-      </div>
-      <div class="today-log-visual">
-        <video class="app-video today-log-video" autoplay muted loop playsinline preload="auto" aria-label="Old money outfit inspiration video">
-          <source src="${oldMoneyOutfitVideo}" type="video/mp4">
-        </video>
-        <button class="small-button complete-day-button" id="complete-today" type="button">COMPLETED TODAY'S TARGET</button>
+        <section class="mission-card"><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button" ${attendanceForToday ? '' : 'disabled'}>ADD EXERCISE</button></div></section>
+        ${completeTodayButton}
       </div>
     </section>
     `
@@ -540,10 +625,29 @@ function render() {
     const xpGain = getExerciseXpGain(id) * enteredCount
     const xpText = id === 'run' ? `${enteredCount} km` : `${enteredCount} reps`
     state.xp += xpGain
-    state.lastDecayDate = date
     syncLevelFromXp()
     save(); render(); showToast(`${xpText} logged · +${xpGain.toFixed(1)} XP`)
   }))
+  document.querySelectorAll<HTMLButtonElement>('.today-mode-option').forEach((button) => button.addEventListener('click', () => {
+    const mode = button.dataset.todayMode
+    if (mode !== 'training' && mode !== 'recovery') return
+    todayMode = mode
+    todayCompletionOpen = false
+    render()
+  }))
+  document.querySelector('#change-today-mode')?.addEventListener('click', () => {
+    if (state.attendanceDates[todayKey()]) return
+    todayMode = 'choose'
+    todayCompletionOpen = false
+    render()
+  })
+  document.querySelector('#record-attendance')?.addEventListener('click', () => {
+    if (todayMode === 'choose') return
+    const credit = recordAttendance(todayMode)
+    if (credit === null) return
+    render()
+    showToast(`Attendance recorded · +${credit} XP`)
+  })
   document.querySelector('#complete-today')?.addEventListener('click', () => {
     todayCompletionOpen = true
     render()
@@ -794,7 +898,7 @@ function render() {
   document.querySelector('#confirm-reset')?.addEventListener('click', () => {
     resetConfirmationOpen = false
 
-    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], lastDecayDate: undefined }
+    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, attendanceDates: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], lastAttendanceCheckDate: undefined }
     save()
     render()
     showToast('Progress reset to Level 1')
@@ -824,5 +928,5 @@ function render() {
     render()
   }))
 }
-applyMissedDayPenalty()
+applyMissedDayPenalties()
 render()

@@ -20,7 +20,7 @@ async function fetchGemini(apiKey: string, topics: string, wantsAttribution: boo
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
     },
   )
-  if (!response.ok) throw new Error('Gemini request failed')
+  if (!response.ok) throw new Error(`Gemini returned ${response.status}`)
   const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().replace(/^["“]|["”]$/g, '')
   if (!text) throw new Error('Empty Gemini response')
@@ -35,12 +35,12 @@ async function fetchGroq(apiKey: string, topics: string, wantsAttribution: boole
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'groq/compound-mini',
+      model: 'openai/gpt-oss-20b',
       messages: [{ role: 'user', content: buildPrompt(topics, wantsAttribution) }],
       temperature: 0.9,
     }),
   })
-  if (!response.ok) throw new Error('Groq request failed')
+  if (!response.ok) throw new Error(`Groq returned ${response.status}`)
   const data = await response.json() as { choices?: { message?: { content?: string } }[] }
   const text = data.choices?.[0]?.message?.content?.trim().replace(/^['"“]|['"”]$/g, '')
   if (!text) throw new Error('Empty Groq response')
@@ -61,17 +61,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const groqKey = process.env.GROQ_API_KEY
     const geminiKey = process.env.GEMINI_API_KEY
-    if (!groqKey && !geminiKey) {
-      res.status(503).json({ error: 'No quote provider is configured' })
+    const providers = [
+      ...(groqKey ? [{ name: 'Groq', generate: () => fetchGroq(groqKey, topics, wantsAttribution) }] : []),
+      ...(geminiKey ? [{ name: 'Gemini', generate: () => fetchGemini(geminiKey, topics, wantsAttribution) }] : []),
+    ]
+    if (!providers.length) {
+      res.status(503).json({ error: 'No quote provider is configured. Add a Groq or Gemini API key.' })
       return
     }
-    const text = groqKey
-      ? await fetchGroq(groqKey, topics, wantsAttribution)
-      : await fetchGemini(geminiKey!, topics, wantsAttribution)
-    res.status(200).json({ text })
+
+    for (const provider of providers) {
+      try {
+        const text = await provider.generate()
+        res.status(200).json({ text })
+        return
+      } catch (error) {
+        console.error(`${provider.name} quote generation failed`, error)
+      }
+    }
+
+    res.status(502).json({ error: 'Quote providers are unavailable. Check API keys, model access, and usage limits.' })
   } catch (error) {
     console.error('Quote generation failed', error)
-    res.status(502).json({ error: 'Quote generation failed' })
+    res.status(500).json({ error: 'Quote service encountered an unexpected error.' })
   }
 }
 

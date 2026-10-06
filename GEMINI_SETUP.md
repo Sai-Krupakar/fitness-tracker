@@ -3,10 +3,10 @@
 This app generates quotes with Groq or Google's Gemini API. API keys are
 kept only in the Vercel serverless function, never in the browser or APK.
 
-Groq is used when `GROQ_API_KEY` is configured. Otherwise, Gemini is used when
-`GEMINI_API_KEY` is configured. There is no random or local quote fallback.
-
-The Groq integration uses the free `groq/compound-mini` model.
+Groq is tried first when `GROQ_API_KEY` is configured, using the production
+`openai/gpt-oss-20b` model. If that request fails and `GEMINI_API_KEY` is
+configured, the API automatically tries Gemini. There is no random or local
+quote fallback.
 
 ## 1. Choose a provider and get an API key
 
@@ -103,7 +103,7 @@ npm run android:apk
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Quote generation fails | No provider key is configured, or the key is invalid | Add `GROQ_API_KEY` or `GEMINI_API_KEY` in Vercel, then run `vercel --prod` |
+| Quote generation fails | No provider key is configured, or configured providers reject the request | Add a valid `GROQ_API_KEY` or `GEMINI_API_KEY` in Vercel, check provider usage limits, then run `vercel --prod` |
 | Works in browser but not in the APK | Missing CORS or wrong base URL | `api/quote.ts` already sends `Access-Control-Allow-Origin: *`; double-check `VITE_API_BASE_URL` matches your live Vercel URL exactly |
 | Nothing changes after editing `.env` | Vite only reads `.env` at build time | Stop `npm run dev` and restart it, or rerun `npm run build` |
 
