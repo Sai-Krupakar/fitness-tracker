@@ -25,7 +25,7 @@ type TrainingState = {
 type Tab = 'home' | 'today' | 'progress' | 'missions' | 'profile'
 
 const XP_CONFIG = {
-  levelThresholds: [0, 300, 700, 1300, 2100, 3000, 4100, 5400, 7000],
+  levelThresholds: [0, 333, 778, 1444, 2333, 3333, 4555, 5999, 7777],
   exercise: {
     push: 0.1,
     run: 5,
@@ -37,14 +37,14 @@ const XP_CONFIG = {
 } as const
 
 const levels = [
-  { name: 'Awakening', rank: '01', push: '20 x 3', squat: '20 x 3', core: '20 x 3', run: '2 km', xp: 300 },
-  { name: 'Recruit', rank: '02', push: '22 x 3', squat: '22 x 3', core: '22 x 3', run: '2.5 km', xp: 700 },
-  { name: 'Hunter', rank: '03', push: '25 x 3', squat: '25 x 3', core: '25 x 3', run: '3 km', xp: 1300 },
-  { name: 'Elite', rank: '04', push: '28 x 3', squat: '28 x 3', core: '28 x 3', run: '4 km', xp: 2100 },
-  { name: 'Commander', rank: '05', push: '30 x 3', squat: '30 x 3', core: '30 x 3', run: '5 km', xp: 3000 },
-  { name: 'Monarch', rank: '06', push: '25 x 4', squat: '35 x 3', core: '35 x 3', run: '6 km', xp: 4100 },
-  { name: 'Shadow Monarch', rank: '07', push: '25 x 4', squat: '25 x 4', core: '25 x 4', run: '8 km', xp: 5400 },
-  { name: 'National Level', rank: '08', push: '100 total', squat: '100 total', core: '100 total', run: '10 km', xp: 7000 },
+  { name: 'Awakening', rank: '01', push: '20 x 3', squat: '20 x 3', core: '20 x 3', run: '2 km', xp: 333 },
+  { name: 'Recruit', rank: '02', push: '22 x 3', squat: '22 x 3', core: '22 x 3', run: '2.5 km', xp: 778 },
+  { name: 'Hunter', rank: '03', push: '25 x 3', squat: '25 x 3', core: '25 x 3', run: '3 km', xp: 1444 },
+  { name: 'Elite', rank: '04', push: '28 x 3', squat: '28 x 3', core: '28 x 3', run: '4 km', xp: 2333 },
+  { name: 'Commander', rank: '05', push: '30 x 3', squat: '30 x 3', core: '30 x 3', run: '5 km', xp: 3333 },
+  { name: 'Monarch', rank: '06', push: '25 x 4', squat: '35 x 3', core: '35 x 3', run: '6 km', xp: 4555 },
+  { name: 'Shadow Monarch', rank: '07', push: '25 x 4', squat: '25 x 4', core: '25 x 4', run: '8 km', xp: 5999 },
+  { name: 'National Level', rank: '08', push: '100 total', squat: '100 total', core: '100 total', run: '10 km', xp: 7777 },
 ]
 const baseChallenges: Challenge[] = [
   { name: 'Power ladder', detail: 'Complete 5 rounds: 15 push-ups, 20 squats, and 30 high knees. Rest 90 seconds between rounds.', reward: 8, className: 'power' },
@@ -426,9 +426,11 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
   }
 
   const selectedDayMode: DayMode = todayMode === 'recovery' ? 'recovery' : 'training'
+  const attendanceActionLabel = selectedDayMode === 'training' ? 'START TRAINING' : 'START RECOVERY'
+  const attendanceRecordedLabel = attendanceForToday === 'training' ? 'TRAINING STARTED' : 'RECOVERY STARTED'
   const attendanceButtonMarkup = attendanceForToday
-    ? `<button class="small-button attendance-button" type="button" disabled>ATTENDANCE RECORDED · +${getAttendanceCredit(attendanceForToday)} XP</button>`
-    : `<button class="small-button attendance-button" id="record-attendance" type="button">MARK ATTENDANCE · +${getAttendanceCredit(selectedDayMode)} XP</button>`
+    ? `<button class="small-button attendance-button" type="button" disabled>${attendanceRecordedLabel} · +${getAttendanceCredit(attendanceForToday)} XP</button>`
+    : `<button class="small-button attendance-button" id="record-attendance" type="button">${attendanceActionLabel} · +${getAttendanceCredit(selectedDayMode)} XP</button>`
   const canCompleteToday = Boolean(attendanceForToday) && (todayMode === 'recovery' || hasLoggedTrainingToday)
   const completeTodayButton = `<button class="small-button complete-day-button" id="complete-today" type="button" ${canCompleteToday ? '' : 'disabled'}>COMPLETED TODAY'S TARGET</button>`
 
@@ -558,7 +560,7 @@ function render() {
     let status = 'LOCKED'
     if (rank < state.currentLevel) status = 'CLEARED'
     if (rank === state.currentLevel) status = 'ACTIVE'
-    return `<div class="ladder-row ${rank === state.currentLevel ? 'active' : ''} ${rank < state.currentLevel ? 'cleared' : ''}"><span class="ladder-number">${item.rank}</span><span class="ladder-name">${item.name}</span><span class="ladder-state">${status}</span></div>`
+    return `<div class="ladder-row ${rank === state.currentLevel ? 'active' : ''} ${rank < state.currentLevel ? 'cleared' : ''}"><span class="ladder-number">${item.rank}</span><span class="ladder-name">${item.name}</span><span class="ladder-meta"><span class="ladder-state">${status}</span><span class="ladder-xp">${item.xp.toLocaleString()} XP</span></span></div>`
   }).join('')
 
   let tabContent = ''
