@@ -94,9 +94,30 @@ const hunterStats = () => [
   { label: 'STR', value: Math.floor((state.exerciseTotals.push ?? 0) / 10), detail: 'Strength' },
   { label: 'VIT', value: state.completed, detail: 'Vitality' },
   { label: 'AGI', value: Math.floor(state.exerciseTotals.run ?? 0), detail: 'Agility' },
-  { label: 'END', value: new Set([...Object.keys(state.activityDates), ...Object.keys(state.attendanceDates)]).size, detail: 'Endurance' },
+  { label: 'END', value: getDayCounts().total, detail: 'Plan days' },
   { label: 'DEX', value: state.customExercises.length, detail: 'Dexterity' },
 ]
+const getDayCounts = () => {
+  const trainingDates = new Set(Object.keys(state.activityDates))
+  Object.entries(state.dailyLogs).forEach(([dateKey, log]) => {
+    if (Object.keys(log).length > 0) trainingDates.add(dateKey)
+  })
+  Object.entries(state.attendanceDates).forEach(([dateKey, mode]) => {
+    if (mode === 'training') trainingDates.add(dateKey)
+  })
+
+  const recoveryDates = new Set(Object.entries(state.attendanceDates)
+    .filter(([dateKey, mode]) => mode === 'recovery' && !trainingDates.has(dateKey))
+    .map(([dateKey]) => dateKey))
+  const training = Math.max(state.completed, trainingDates.size)
+  const recovery = recoveryDates.size
+  const total = Math.max(trainingDates.size + recovery, training + recovery)
+  return { training, recovery, total }
+}
+const renderDayCountSummary = (className: string) => {
+  const counts = getDayCounts()
+  return `<div class="day-count-summary ${className}" aria-label="Training and recovery day totals"><div class="day-count-item"><span>TRAINING</span><strong>${counts.training}</strong></div><div class="day-count-item"><span>RECOVERY</span><strong>${counts.recovery}</strong></div><div class="day-count-item"><span>TOTAL DAYS</span><strong>${counts.total}</strong></div></div>`
+}
 const recordTrainingDay = (dateKey: string) => {
   if (hasTrainingActivity(dateKey)) return false
   state.activityDates[dateKey] = true
@@ -257,8 +278,37 @@ async function loadQuote() {
   }
 }
 
-function exerciseVisual(kind: string, label: string) {
-  return `<div class="exercise-tile ${kind}"><div class="figure" aria-hidden="true"><span class="head"></span><span class="torso"></span><span class="arm arm-a"></span><span class="arm arm-b"></span><span class="leg leg-a"></span><span class="leg leg-b"></span></div><span class="exercise-label">${label}</span></div>`
+function exerciseMotionClass(name: string) {
+  const normalized = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ')
+  if (/\b(run|running|jog|jogging)\b/.test(normalized)) return 'motion-run'
+  if (/\b(push ?ups?|pushups?)\b/.test(normalized)) return 'motion-pushup'
+  if (/\b(squats?|sit ?squats?)\b/.test(normalized)) return 'motion-squat'
+  if (/\b(planks?|mountain climbers?)\b/.test(normalized)) return 'motion-plank'
+  if (/\b(sit ?ups?|crunches?)\b/.test(normalized)) return 'motion-situp'
+  if (/\b(jumping jacks?|star jumps?)\b/.test(normalized)) return 'motion-jumping-jack'
+  if (/\b(lunges?|split squats?)\b/.test(normalized)) return 'motion-lunge'
+  if (/\bburpees?\b/.test(normalized)) return 'motion-burpee'
+  return 'motion-generic'
+}
+
+function exerciseFigureMarkup(motion: string) {
+  const figures: Record<string, string> = {
+    'motion-run': '<g class="run-bounce"><circle class="art-head" cx="36" cy="10" r="5"/><path class="art-body" d="M34 18 29 32"/><g class="run-arm run-arm-a"><path d="M33 20 25 28 21 23"/></g><g class="run-arm run-arm-b"><path d="M33 20 40 25 44 20"/></g><g class="run-leg run-leg-a"><path d="M29 32 21 41"/><g class="run-shin run-shin-a"><path d="M21 41 18 52"/></g></g><g class="run-leg run-leg-b"><path d="M29 32 39 39"/><g class="run-shin run-shin-b"><path d="M39 39 46 48"/></g></g></g>',
+    'motion-pushup': '<g class="pushup-body"><circle class="art-head" cx="13" cy="18" r="5"/><path class="art-body" d="M19 21 46 27 62 29"/><path d="M45 27 54 31 65 31"/></g><g class="pushup-arm pushup-arm-a"><path d="M25 22 20 32 18 42"/></g><g class="pushup-arm pushup-arm-b"><path d="M29 24 26 34 25 42"/></g>',
+    'motion-squat': '<circle class="art-head" cx="32" cy="9" r="5"/><path class="squat-body art-body" d="M32 17 32 32"/><path d="M31 20 21 29M33 20 43 29"/><g class="squat-leg squat-leg-a"><path d="M32 32 23 40 20 53"/></g><g class="squat-leg squat-leg-b"><path d="M32 32 41 40 44 53"/></g>',
+    'motion-plank': '<circle class="art-head" cx="12" cy="24" r="5"/><path class="art-body" d="M18 26 44 29 58 29"/><path d="M25 27 20 36 18 43M46 29 53 35 60 36"/>',
+    'motion-situp': '<circle class="art-head" cx="19" cy="16" r="5"/><path class="situp-body art-body" d="M24 20 34 31 49 34"/><path d="M31 28 24 38M34 31 41 38M49 34 55 45 63 47M49 34 54 43 62 43"/>',
+    'motion-jumping-jack': '<circle class="art-head" cx="32" cy="9" r="5"/><path class="art-body" d="M32 17 32 34"/><g class="jack-arm jack-arm-a"><path d="M30 20 20 12 13 8"/></g><g class="jack-arm jack-arm-b"><path d="M34 20 44 12 51 8"/></g><g class="jack-leg jack-leg-a"><path d="M32 34 23 44 16 53"/></g><g class="jack-leg jack-leg-b"><path d="M32 34 41 44 48 53"/></g>',
+    'motion-lunge': '<circle class="art-head" cx="32" cy="9" r="5"/><path class="art-body" d="M32 17 32 33"/><path d="M30 21 21 29M34 21 43 29"/><g class="lunge-leg lunge-leg-a"><path d="M32 33 23 40 20 53"/></g><g class="lunge-leg lunge-leg-b"><path d="M32 33 42 40 46 52"/></g>',
+    'motion-burpee': '<circle class="art-head" cx="32" cy="9" r="5"/><path class="burpee-body art-body" d="M32 17 32 33"/><g class="burpee-arm"><path d="M30 21 21 29 17 35M34 21 43 29 47 35"/></g><g class="burpee-leg"><path d="M32 33 24 42 20 53M32 33 40 42 44 53"/></g>',
+  }
+  return figures[motion] ?? '<circle class="art-head" cx="32" cy="10" r="5"/><path class="art-body" d="M32 18 32 34M30 21 22 29M34 21 42 29M32 34 25 51M32 34 39 51"/>'
+}
+
+function exerciseVisual(kind: string, label: string, exerciseName: string) {
+  const motion = exerciseMotionClass(exerciseName)
+  const viewBox = motion === 'motion-run' ? '4 0 48 56' : '0 0 64 64'
+  return `<div class="exercise-tile ${kind} ${motion}"><svg class="exercise-art" viewBox="${viewBox}" aria-hidden="true" focusable="false">${exerciseFigureMarkup(motion)}</svg><span class="exercise-label">${label}</span></div>`
 }
 
 function renderHomeTab(level: ReturnType<typeof current>) {
@@ -321,6 +371,7 @@ function renderHomeTab(level: ReturnType<typeof current>) {
         </div>
       </div>
     </section>
+    ${renderDayCountSummary('home-day-counts')}
 
     <!-- <section class="raid-board">
       <div class="section-heading compact raid-heading">
@@ -337,7 +388,8 @@ function renderProgressTab(ladderRows: string) {
     <section class="progress-layout">
       <div class="progress-details">
         <section class="section-heading"><div><p class="kicker">YOUR PROGRESSION</p><h2>Rank path</h2></div><span class="muted">${state.currentLevel} / ${levels.length}</span></section>
-        <section class="ladder"><div class="ladder-summary"><span>Total training days</span><b>${state.completed}</b></div>${ladderRows}</section>
+        ${renderDayCountSummary('progress-day-counts')}
+        <section class="ladder">${ladderRows}</section>
       </div>
       <div class="progress-rank-visual">
         <video class="app-video progress-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Pattern storage video">
@@ -368,7 +420,7 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
     return `
       <div class="log-item ${isLoggedToday ? 'logged-today' : ''}">
         <div class="log-summary">
-          <span class="check-figure ${exercise.icon}">${exerciseVisual(exercise.icon, '')}</span>
+          <span class="check-figure ${exercise.icon}">${exerciseVisual(exercise.icon, '', exercise.label)}</span>
           <span class="check-copy"><b>${exercise.label}</b>${exerciseDetail}</span>
         </div>
         <div class="log-actions">
@@ -503,9 +555,10 @@ function renderChallengesTab() {
 function renderProfileTab(level: ReturnType<typeof current>) {
   const progress = getLevelProgress()
   const stats = hunterStats()
+  const dayCounts = getDayCounts()
   const badgeList = [
     { label: 'Hunter title', value: hunterTitle() },
-    { label: 'Training days', value: `${state.completed} days` },
+    { label: 'Total plan days', value: `${dayCounts.total} ${dayCounts.total === 1 ? 'day' : 'days'}` },
     { label: 'Power level', value: `${state.xp} XP` },
     { label: 'Next rank', value: level.name },
   ]
@@ -541,14 +594,15 @@ function renderProfileTab(level: ReturnType<typeof current>) {
         </article>
       `).join('')}
     </section>
+    ${renderDayCountSummary('profile-day-counts')}
     <section class="system-stats" aria-label="Hunter stats">
       <div class="system-stats-heading"><p class="kicker">SYSTEM STATUS</p><div class="system-stats-live"><span>LIVE VALUES</span><button class="system-info-button" id="system-stats-info" type="button" aria-label="How Hunter stats are calculated" aria-expanded="${systemInfoOpen}">i</button></div></div>
-      ${systemInfoOpen ? `<div class="system-stats-info" id="system-stats-explanation"><p>Values are calculated from your saved training activity.</p><ul><li><b>STR</b> = total push-ups / 10</li><li><b>VIT</b> = completed training days</li><li><b>AGI</b> = total run distance in km</li><li><b>END</b> = days with recorded activity</li><li><b>DEX</b> = custom exercises created</li></ul></div>` : ''}
+      ${systemInfoOpen ? `<div class="system-stats-info" id="system-stats-explanation"><p>Values are calculated from your saved training activity.</p><ul><li><b>STR</b> = total push-ups / 10</li><li><b>VIT</b> = completed workout days</li><li><b>AGI</b> = total run distance in km</li><li><b>END</b> = attended workout or recovery days</li><li><b>DEX</b> = custom exercises created</li></ul></div>` : ''}
       <div class="system-stats-grid">
         ${stats.map((stat) => `<div class="system-stat"><b>${stat.label}</b><strong>${stat.value}</strong><span>${stat.detail}</span></div>`).join('')}
       </div>
     </section>
-    <section class="mission-card"><div class="profile-stat"><span>Current rank</span><b>Level ${String(state.currentLevel).padStart(2, '0')} · ${level.name}</b></div><div class="profile-stat"><span>Total training days</span><b>${state.completed}</b></div><div class="profile-stat"><span>Progress style</span><b>SELF-PACED</b></div><div class="profile-stat"><span>Active quests</span><b>${challenges().length}</b></div><button class="reset-button" id="reset-progress">RESET LOCAL PROGRESS</button></section>`
+    <section class="mission-card"><div class="profile-stat"><span>Current rank</span><b>Level ${String(state.currentLevel).padStart(2, '0')} · ${level.name}</b></div><div class="profile-stat"><span>Workout days</span><b>${dayCounts.training}</b></div><div class="profile-stat"><span>Progress style</span><b>SELF-PACED</b></div><div class="profile-stat"><span>Active quests</span><b>${challenges().length}</b></div><button class="reset-button" id="reset-progress">RESET LOCAL PROGRESS</button></section>`
 }
 
 function render() {

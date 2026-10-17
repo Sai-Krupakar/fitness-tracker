@@ -424,6 +424,14 @@ main { padding: 20px 18px 30px; }.hero-panel { position: relative; overflow: hid
 .system-stat strong { display: block; margin: 6px 0; color: var(--ink); font-size: 20px; }
 .system-stat span { color: var(--muted); overflow-wrap: anywhere; }
 
+.day-count-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.day-count-item { min-width: 0; padding: 11px 5px; border: 1px solid rgba(199,242,105,.26); background: linear-gradient(145deg, rgba(31,44,43,.88), rgba(18,27,29,.92)); text-align: center; }
+.day-count-item span { display: block; color: var(--muted); font: 8px/1.2 var(--mono); letter-spacing: .6px; overflow-wrap: anywhere; }
+.day-count-item strong { display: block; margin-top: 7px; color: var(--lime); font: 700 20px/1 var(--mono); }
+.home-day-counts { margin: 14px 0 22px; }
+.progress-day-counts { margin: 0 0 14px; }
+.profile-day-counts { margin: 0 0 18px; }
+
 .custom-exercise-rate {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -451,6 +459,104 @@ main { padding: 20px 18px 30px; }.hero-panel { position: relative; overflow: hid
   display: flex;
   align-items: center;
   gap: 7px;
+}
+
+.log-item .exercise-tile { overflow: visible; }
+.exercise-art { display: block; width: 100%; height: 100%; overflow: visible; color: var(--lime); filter: drop-shadow(0 0 4px rgba(199,242,105,.55)); stroke: currentColor; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+.exercise-art .art-head { fill: currentColor; stroke: none; }
+.exercise-art .run-leg, .exercise-art .run-shin, .exercise-art .run-arm, .exercise-art .pushup-body, .exercise-art .pushup-arm, .exercise-art .squat-body, .exercise-art .squat-leg, .exercise-art .situp-body, .exercise-art .jack-arm, .exercise-art .jack-leg, .exercise-art .lunge-leg, .exercise-art .burpee-body, .exercise-art .burpee-arm, .exercise-art .burpee-leg { transform-box: view-box; }
+.log-item .motion-run .run-bounce { transform-box: view-box; transform-origin: 32px 32px; animation: run-bounce 0.42s ease-in-out infinite alternate !important; }
+.log-item .motion-run .run-leg-a { transform-origin: 29px 32px; animation: run-stride 0.48s cubic-bezier(.4,0,.6,1) infinite alternate !important; }
+.log-item .motion-run .run-leg-b { transform-origin: 29px 32px; animation: run-stride 0.48s cubic-bezier(.4,0,.6,1) -0.24s infinite alternate !important; }
+.log-item .motion-run .run-shin-a { transform-origin: 21px 41px; animation: run-knee-flex 0.48s ease-in-out infinite alternate !important; }
+.log-item .motion-run .run-shin-b { transform-origin: 39px 39px; animation: run-knee-flex 0.48s ease-in-out -0.24s infinite alternate !important; }
+.log-item .motion-run .run-arm-a { transform-origin: 33px 20px; animation: run-swing 0.48s cubic-bezier(.4,0,.6,1) infinite alternate !important; }
+.log-item .motion-run .run-arm-b { transform-origin: 33px 20px; animation: run-swing 0.48s cubic-bezier(.4,0,.6,1) -0.24s infinite alternate !important; }
+.log-item .motion-pushup .pushup-body { animation: pushup-lower 1.1s ease-in-out infinite !important; }
+.log-item .motion-pushup .pushup-arm { transform-origin: 25px 22px; animation: pushup-bend 1.1s ease-in-out infinite !important; }
+.log-item .motion-squat .squat-body { transform-origin: 32px 32px; animation: squat-lower 1.3s ease-in-out infinite !important; }
+.log-item .motion-squat .squat-leg-a { transform-origin: 32px 32px; animation: squat-left-leg 1.3s ease-in-out infinite !important; }
+.log-item .motion-squat .squat-leg-b { transform-origin: 32px 32px; animation: squat-right-leg 1.3s ease-in-out infinite !important; }
+.log-item .motion-plank .exercise-art { animation: plank-hold 2s ease-in-out infinite !important; }
+.log-item .motion-situp .situp-body { transform-origin: 24px 20px; animation: situp-curl 1s ease-in-out infinite !important; }
+.log-item .motion-jumping-jack .jack-arm-a { transform-origin: 32px 20px; animation: jack-arm-left 0.8s ease-in-out infinite alternate !important; }
+.log-item .motion-jumping-jack .jack-arm-b { transform-origin: 32px 20px; animation: jack-arm-right 0.8s ease-in-out infinite alternate !important; }
+.log-item .motion-jumping-jack .jack-leg-a { transform-origin: 32px 34px; animation: jack-leg-left 0.8s ease-in-out infinite alternate !important; }
+.log-item .motion-jumping-jack .jack-leg-b { transform-origin: 32px 34px; animation: jack-leg-right 0.8s ease-in-out infinite alternate !important; }
+.log-item .motion-lunge .lunge-leg-a { transform-origin: 32px 33px; animation: lunge-front 1.4s ease-in-out infinite !important; }
+.log-item .motion-lunge .lunge-leg-b { transform-origin: 32px 33px; animation: lunge-back 1.4s ease-in-out infinite !important; }
+.log-item .motion-burpee .burpee-body { transform-origin: 32px 33px; animation: burpee-body 1.6s ease-in-out infinite !important; }
+.log-item .motion-burpee .burpee-arm { transform-origin: 32px 21px; animation: burpee-arms 1.6s ease-in-out infinite !important; }
+.log-item .motion-burpee .burpee-leg { transform-origin: 32px 33px; animation: burpee-legs 1.6s ease-in-out infinite !important; }
+.log-item .motion-generic .exercise-art { animation: generic-move 1.5s ease-in-out infinite !important; }
+
+@keyframes run-bounce { to { transform: translateY(-5px); } }
+@keyframes run-stride { from { transform: rotate(-48deg); } to { transform: rotate(48deg); } }
+@keyframes run-knee-flex { from { transform: rotate(-20deg); } to { transform: rotate(42deg); } }
+@keyframes run-swing { from { transform: rotate(34deg); } to { transform: rotate(-34deg); } }
+@keyframes pushup-lower { 50% { transform: translateY(4px); } }
+@keyframes pushup-bend { 50% { transform: rotate(-24deg); } }
+@keyframes squat-lower { 50% { transform: translateY(5px) scaleY(.92); } }
+@keyframes squat-left-leg { 50% { transform: rotate(-12deg); } }
+@keyframes squat-right-leg { 50% { transform: rotate(12deg); } }
+@keyframes plank-hold { 50% { transform: translateY(1px); } }
+@keyframes situp-curl { 50% { transform: rotate(-28deg); } }
+@keyframes jack-arm-left { to { transform: rotate(-22deg); } }
+@keyframes jack-arm-right { to { transform: rotate(22deg); } }
+@keyframes jack-leg-left { to { transform: rotate(18deg); } }
+@keyframes jack-leg-right { to { transform: rotate(-18deg); } }
+@keyframes lunge-front { 50% { transform: rotate(-16deg); } }
+@keyframes lunge-back { 50% { transform: rotate(12deg); } }
+@keyframes burpee-body { 30% { transform: translateY(6px) rotate(76deg); } 68% { transform: translateY(-7px); } }
+@keyframes burpee-arms { 30% { transform: rotate(24deg); } 68% { transform: rotate(-35deg); } }
+@keyframes burpee-legs { 30% { transform: rotate(70deg); } 68% { transform: rotate(-14deg); } }
+@keyframes generic-move { 50% { transform: translateY(-2px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .log-item .exercise-tile[class*="motion-"] .exercise-art,
+  .log-item .exercise-tile[class*="motion-"] .exercise-art * { animation: none !important; }
+}
+
+.log-item .exercise-tile { overflow: visible; }
+.log-item .exercise-tile .figure { animation: exercise-ready 2.4s ease-in-out infinite !important; }
+.log-item .exercise-tile.motion-run .figure { animation: exercise-run 0.65s ease-in-out infinite !important; }
+.log-item .exercise-tile.motion-run .arm-a,
+.log-item .exercise-tile.motion-run .leg-b { animation: exercise-stride 0.65s ease-in-out infinite alternate !important; }
+.log-item .exercise-tile.motion-run .arm-b,
+.log-item .exercise-tile.motion-run .leg-a { animation: exercise-stride 0.65s ease-in-out infinite alternate-reverse !important; }
+.log-item .exercise-tile.motion-pushup .figure { animation: exercise-pushup 1s ease-in-out infinite !important; }
+.log-item .exercise-tile.motion-squat .figure { animation: exercise-squat 1.2s ease-in-out infinite !important; }
+.log-item .exercise-tile.motion-squat .leg { animation: exercise-squat-legs 1.2s ease-in-out infinite alternate !important; }
+.log-item .exercise-tile.motion-plank .figure { top: 20px; animation: exercise-plank 2s ease-in-out infinite !important; }
+.log-item .exercise-tile.motion-situp .figure { animation: exercise-situp 1s ease-in-out infinite !important; }
+.log-item .exercise-tile.motion-jumping-jack .figure { animation: exercise-jump 0.8s ease-in-out infinite !important; }
+.log-item .exercise-tile.motion-jumping-jack .arm-a,
+.log-item .exercise-tile.motion-jumping-jack .leg-a { animation: exercise-open-a 0.8s ease-in-out infinite alternate !important; }
+.log-item .exercise-tile.motion-jumping-jack .arm-b,
+.log-item .exercise-tile.motion-jumping-jack .leg-b { animation: exercise-open-b 0.8s ease-in-out infinite alternate !important; }
+.log-item .exercise-tile.motion-lunge .figure { animation: exercise-lunge 1.4s ease-in-out infinite !important; }
+.log-item .exercise-tile.motion-burpee .figure { animation: exercise-burpee 1.5s ease-in-out infinite !important; }
+.log-item .exercise-tile.motion-burpee .arm,
+.log-item .exercise-tile.motion-burpee .leg { animation: exercise-burpee-limbs 1.5s ease-in-out infinite !important; }
+
+@keyframes exercise-ready { 50% { transform: translateX(-50%) translateY(-2px); } }
+@keyframes exercise-run { 50% { transform: translateX(-50%) translateY(-4px) rotate(-8deg); } }
+@keyframes exercise-stride { to { transform: rotate(58deg); } }
+@keyframes exercise-pushup { 50% { transform: translateX(-50%) translateY(5px) rotate(76deg) scale(.85); } }
+@keyframes exercise-squat { 50% { transform: translateX(-50%) translateY(5px); } }
+@keyframes exercise-squat-legs { to { transform: rotate(68deg) translateY(2px); } }
+@keyframes exercise-plank { 50% { transform: translateX(-50%) translateY(2px) rotate(88deg) scale(.82); } }
+@keyframes exercise-situp { 50% { transform: translateX(-50%) translateY(-4px) rotate(42deg); } }
+@keyframes exercise-jump { 50% { transform: translateX(-50%) translateY(-5px); } }
+@keyframes exercise-open-a { to { transform: rotate(-60deg); } }
+@keyframes exercise-open-b { to { transform: rotate(60deg); } }
+@keyframes exercise-lunge { 50% { transform: translateX(-50%) translateY(3px) rotate(-8deg); } }
+@keyframes exercise-burpee { 35% { transform: translateX(-50%) translateY(5px) rotate(68deg) scale(.85); } 70% { transform: translateX(-50%) translateY(-5px); } }
+@keyframes exercise-burpee-limbs { 35% { transform: rotate(70deg); } 70% { transform: rotate(-55deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .log-item .exercise-tile[class*="motion-"] .figure,
+  .log-item .exercise-tile[class*="motion-"] .figure span { animation: none !important; }
 }
 
 .log-summary {
