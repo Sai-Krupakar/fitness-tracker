@@ -1,4 +1,5 @@
 import './style.css'
+import { cloudEnabled, describeAuthError, saveProgress, sendReset, signInWithEmail, signOutUser, signUpWithEmail, watchProgress, watchUser, type CloudRecord, type CloudUser } from './cloud'
 import mountainTownVideo from './assets/From Klickpin.com- Cultural mountain town stories for people who love beauty for creative people to pin for future adve-pin-id-907686499886846221.mp4'
 import patternStorageVideo from './assets/From Klickpin.com- Practical pattern storage tips with charm and useful ideas this season for stylish handmade days-pin-id-921267667539985906.mp4'
 import oldMoneyOutfitVideo from './assets/From Klickpin.com- Chic old money outfit ideas that make everyday moments look more intentional memorable and beautifully styled for busy people w.mp4'
@@ -66,7 +67,7 @@ const stored = localStorage.getItem('level-up-state')
 const oldState = stored ? JSON.parse(stored) : {}
 const localDateKey = (date: Date) => { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, '0'); const day = String(date.getDate()).padStart(2, '0'); return `${year}-${month}-${day}` }
 const todayKey = () => localDateKey(new Date())
-let state: TrainingState = {
+const buildState = (oldState: Record<string, any>): TrainingState => ({
   completed: oldState.completed ?? 0,
   challengeDone: oldState.challengeDone ?? oldState.missionDone ?? false,
   xp: oldState.xp ?? 0,
@@ -86,8 +87,56 @@ let state: TrainingState = {
   customChallenges: oldState.customChallenges ?? [],
   savedChallenges: oldState.savedChallenges ?? [...baseChallenges, ...(oldState.customChallenges ?? [])],
   lastAttendanceCheckDate: oldState.lastAttendanceCheckDate ?? oldState.lastDecayDate,
+})
+let state = buildState(oldState)
+
+const OWNER_KEY = 'level-up-owner'
+const DIRTY_KEY = 'level-up-dirty'
+const RESET_CREDENTIAL_KEY = 'level-up-reset-code-credential'
+type ResetCredential = { salt: string; hash: string }
+const storedResetCredential = localStorage.getItem(RESET_CREDENTIAL_KEY)
+let resetCredential: ResetCredential | null = (() => {
+  try { return storedResetCredential ? JSON.parse(storedResetCredential) as ResetCredential : null } catch { return null }
+})()
+type SyncStatus = 'local' | 'syncing' | 'synced' | 'offline' | 'error'
+let authReady = !cloudEnabled
+let currentUser: CloudUser | null = null
+let awaitingFirstSync = false
+let firstSyncDone = !cloudEnabled
+let syncStatus: SyncStatus = cloudEnabled ? 'syncing' : 'local'
+let syncErrorCode = ''
+// Survives an app restart so offline changes are pushed instead of overwritten by the cloud copy.
+let isDirty = localStorage.getItem(DIRTY_KEY) === '1'
+let changeVersion = 0
+let syncTimer: number | undefined
+let stopProgressWatch: (() => void) | null = null
+let authMode: 'signin' | 'signup' = 'signin'
+let authBusy = false
+let authEmail = ''
+let authMessage = ''
+let authMessageKind: 'error' | 'info' = 'error'
+const save = () => {
+  localStorage.setItem('level-up-state', JSON.stringify(state))
+  markDirty()
 }
-const save = () => localStorage.setItem('level-up-state', JSON.stringify(state))
+const bytesToHex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+async function hashResetCode(code: string): Promise<ResetCredential> {
+  if (!crypto.subtle) throw new Error('Secure code storage is not available on this device.')
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(code), 'PBKDF2', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 210_000, hash: 'SHA-256' }, key, 256)
+  return { salt: bytesToHex(salt), hash: bytesToHex(new Uint8Array(bits)) }
+}
+async function verifyResetCode(code: string, credential: ResetCredential) {
+  if (!crypto.subtle) throw new Error('Secure code verification is not available on this device.')
+  const salt = new Uint8Array(credential.salt.match(/.{2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? [])
+  if (salt.length !== 16 || !/^[a-f0-9]{64}$/i.test(credential.hash)) return false
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(code), 'PBKDF2', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 210_000, hash: 'SHA-256' }, key, 256)
+  const actual = new Uint8Array(bits)
+  const expected = credential.hash.match(/.{2}/g)!.map((byte) => Number.parseInt(byte, 16))
+  return actual.every((byte, index) => byte === expected[index])
+}
 const needsXpBackfill = !oldState.xpHistory
 const needsBreakdownBackfill = !oldState.xpBreakdown
 const roundXp = (value: number) => Math.round(value * 10) / 10
@@ -243,10 +292,10 @@ const TAG_OPTIONS = [
 ]
 const storedTags = localStorage.getItem('level-up-quote-tags')
 let selectedTags: string[] = storedTags ? JSON.parse(storedTags).map((tag: string) => tag === 'gym' ? 'exercise' : tag) : ['exercise', 'motivational']
-const saveTags = () => localStorage.setItem('level-up-quote-tags', JSON.stringify(selectedTags))
+const saveTags = () => { localStorage.setItem('level-up-quote-tags', JSON.stringify(selectedTags)); markDirty() }
 const storedCustomQuotes = localStorage.getItem('level-up-custom-quotes')
 let customQuotes: string[] = storedCustomQuotes ? JSON.parse(storedCustomQuotes) : []
-const saveCustomQuotes = () => localStorage.setItem('level-up-custom-quotes', JSON.stringify(customQuotes))
+const saveCustomQuotes = () => { localStorage.setItem('level-up-custom-quotes', JSON.stringify(customQuotes)); markDirty() }
 
 let activeTab: Tab = 'home'
 let tagDropdownOpen = false
@@ -256,6 +305,9 @@ let quoteIsDefault = false
 let customQuoteFormOpen = false
 let customExerciseFormOpen = false
 let resetConfirmationOpen = false
+let resetCodeStep: 'setup' | 'verify' | 'confirm' = 'verify'
+let resetCodeError = ''
+let resetCodeBusy = false
 let pendingExerciseDeletion: ExerciseEntry | null = null
 let selectedChallengeIndex = 0
 let challengeWheelRotation = 0
@@ -651,6 +703,9 @@ function renderProfileTab(level: ReturnType<typeof current>) {
   const progress = getLevelProgress()
   const stats = hunterStats()
   const dayCounts = getDayCounts()
+  const accountCard = cloudEnabled && currentUser
+    ? `<section class="mission-card account-card"><div class="profile-stat"><span>Account</span><b>${escapeHtml(currentUser.email ?? 'Signed in')}</b></div><div class="profile-stat"><span>Cloud backup</span><b id="sync-status" data-state="${syncStatus}">${syncStatusText[syncStatus]}</b></div><button class="small-button account-signout" id="sign-out" type="button">SIGN OUT</button></section>`
+    : `<section class="mission-card account-card"><div class="profile-stat"><span>Cloud backup</span><b id="sync-status" data-state="local">${syncStatusText.local}</b></div></section>`
   const badgeList = [
     { label: 'Hunter title', value: hunterTitle() },
     { label: 'Total plan days', value: `${dayCounts.total} ${dayCounts.total === 1 ? 'day' : 'days'}` },
@@ -698,10 +753,12 @@ function renderProfileTab(level: ReturnType<typeof current>) {
         ${stats.map((stat) => `<div class="system-stat"><b>${stat.label}</b><strong>${stat.value}</strong><span>${stat.detail}</span></div>`).join('')}
       </div>
     </section>
+    ${accountCard}
     <section class="mission-card"><div class="profile-stat"><span>Current rank</span><b>Level ${String(state.currentLevel).padStart(2, '0')} · ${level.name}</b></div><div class="profile-stat"><span>Workout days</span><b>${dayCounts.training}</b></div><div class="profile-stat"><span>Progress style</span><b>SELF-PACED</b></div><div class="profile-stat"><span>Active quests</span><b>${challenges().length}</b></div><button class="reset-button" id="reset-progress">RESET LOCAL PROGRESS</button></section>`
 }
 
 function render() {
+  if (cloudEnabled && (!authReady || !currentUser || awaitingFirstSync)) { renderAuthGate(); return }
   const level = current()
   const log = todayLog()
   const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
@@ -732,11 +789,20 @@ function render() {
         <div class="confirmation-backdrop" id="cancel-reset"></div>
         <section class="confirmation-panel">
           <p class="kicker">RESET PROGRESS</p>
-          <h2 id="reset-dialog-title">Start over?</h2>
-          <p>This will permanently remove your XP, exercise logs, completed days, and custom exercises.</p>
+          <h2 id="reset-dialog-title">${resetCodeStep === 'setup' ? 'Set a reset code' : resetCodeStep === 'verify' ? 'Enter your reset code' : 'Start over?'}</h2>
+          <p>${resetCodeStep === 'setup'
+            ? 'Choose a six-digit code used only to confirm that you really want to erase your progress. It is not your sign-in or account recovery code.'
+            : resetCodeStep === 'verify'
+              ? 'Enter your six-digit reset code to continue. Your progress will not be changed until you confirm the reset on the next screen.'
+              : `This will permanently remove your XP, exercise logs, completed days, and custom exercises.${cloudEnabled ? ' It also clears your cloud backup.' : ''}`}</p>
+          ${resetCodeStep === 'setup' ? `<div class="reset-code-fields"><label class="auth-field"><span>NEW SIX-DIGIT CODE</span><input id="reset-code-new" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label><label class="auth-field"><span>CONFIRM CODE</span><input id="reset-code-confirm" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label></div>` : ''}
+          ${resetCodeStep === 'verify' ? `<label class="auth-field reset-code-fields"><span>RESET CODE</span><input id="reset-code-entry" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label>` : ''}
+          ${resetCodeError ? `<p class="auth-message error" role="alert">${escapeHtml(resetCodeError)}</p>` : ''}
           <div class="confirmation-actions">
             <button class="small-button secondary-button" id="cancel-reset" type="button">CANCEL</button>
-            <button class="small-button reset-confirm-button" id="confirm-reset" type="button">RESET PROGRESS</button>
+            ${resetCodeStep === 'setup' ? `<button class="small-button reset-confirm-button" id="save-reset-code" type="button" ${resetCodeBusy ? 'disabled' : ''}>${resetCodeBusy ? 'SAVING…' : 'SAVE CODE'}</button>` : ''}
+            ${resetCodeStep === 'verify' ? `<button class="small-button reset-confirm-button" id="verify-reset-code" type="button" ${resetCodeBusy ? 'disabled' : ''}>${resetCodeBusy ? 'CHECKING…' : 'VERIFY CODE'}</button>` : ''}
+            ${resetCodeStep === 'confirm' ? '<button class="small-button reset-confirm-button" id="confirm-reset" type="button">RESET PROGRESS</button>' : ''}
           </div>
         </section>
       </div>` : ''}
@@ -1039,6 +1105,10 @@ function render() {
     showToast(`${challenge.name} completed · +${challenge.reward} XP`)
   })
   document.querySelector('#profile')?.addEventListener('click', () => { activeTab = 'profile'; render() })
+  document.querySelector('#sign-out')?.addEventListener('click', async () => {
+    const signedOut = await signOutAndClear()
+    if (!signedOut) showToast('Could not save your latest changes. Check your connection and try again.')
+  })
   document.querySelectorAll<HTMLButtonElement>('.xp-range-button').forEach((button) => button.addEventListener('click', () => {
     const range = Number(button.dataset.xpRange)
     if (range !== 7 && range !== 14 && range !== 30 && range !== 90) return
@@ -1051,14 +1121,54 @@ function render() {
   }))
   document.querySelector('#reset-progress')?.addEventListener('click', () => {
     resetConfirmationOpen = true
+    resetCodeStep = resetCredential ? 'verify' : 'setup'
+    resetCodeError = ''
     render()
   })
   document.querySelectorAll<HTMLElement>('#cancel-reset').forEach((element) => element.addEventListener('click', () => {
     resetConfirmationOpen = false
+    resetCodeError = ''
     render()
   }))
+  document.querySelector('#save-reset-code')?.addEventListener('click', async () => {
+    const code = document.querySelector<HTMLInputElement>('#reset-code-new')?.value ?? ''
+    const confirmation = document.querySelector<HTMLInputElement>('#reset-code-confirm')?.value ?? ''
+    if (!/^\d{6}$/.test(code)) { resetCodeError = 'Enter a six-digit number.'; render(); return }
+    if (code !== confirmation) { resetCodeError = 'The codes do not match.'; render(); return }
+    resetCodeBusy = true
+    resetCodeError = ''
+    render()
+    try {
+      resetCredential = await hashResetCode(code)
+      localStorage.setItem(RESET_CREDENTIAL_KEY, JSON.stringify(resetCredential))
+      markDirty()
+      resetCodeStep = 'confirm'
+    } catch (error) {
+      resetCodeError = error instanceof Error ? error.message : 'Could not save your reset code.'
+    }
+    resetCodeBusy = false
+    render()
+  })
+  document.querySelector('#verify-reset-code')?.addEventListener('click', async () => {
+    const code = document.querySelector<HTMLInputElement>('#reset-code-entry')?.value ?? ''
+    if (!/^\d{6}$/.test(code)) { resetCodeError = 'Enter your six-digit code.'; render(); return }
+    if (!resetCredential) { resetCodeStep = 'setup'; resetCodeError = ''; render(); return }
+    resetCodeBusy = true
+    resetCodeError = ''
+    render()
+    try {
+      if (await verifyResetCode(code, resetCredential)) resetCodeStep = 'confirm'
+      else resetCodeError = 'That code is incorrect. Try again.'
+    } catch (error) {
+      resetCodeError = error instanceof Error ? error.message : 'Could not verify your reset code.'
+    }
+    resetCodeBusy = false
+    render()
+  })
   document.querySelector('#confirm-reset')?.addEventListener('click', () => {
+    if (resetCodeStep !== 'confirm') return
     resetConfirmationOpen = false
+    resetCodeError = ''
 
     state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, attendanceDates: {}, xpHistory: {}, xpBreakdown: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], lastAttendanceCheckDate: undefined }
     save()
@@ -1090,6 +1200,278 @@ function render() {
     render()
   }))
 }
+const stableStringify = (value: unknown) => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+  ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
+  : item)
+const cloudSnapshot = () => JSON.parse(JSON.stringify({ ...state, quoteTags: selectedTags, customQuotes, resetCredential }))
+const normalizeRemote = (data: CloudRecord) => JSON.parse(JSON.stringify({
+  ...buildState(data),
+  quoteTags: Array.isArray(data.quoteTags) ? data.quoteTags : selectedTags,
+  customQuotes: Array.isArray(data.customQuotes) ? data.customQuotes : customQuotes,
+  resetCredential: data.resetCredential ?? null,
+}))
+const hasMeaningfulProgress = () => state.xp > 0 || Object.keys(state.dailyLogs).length > 0 || Object.keys(state.attendanceDates).length > 0
+const syncStatusText: Record<SyncStatus, string> = {
+  local: 'Cloud backup is not set up. Progress is stored on this device only.',
+  syncing: 'Syncing…',
+  synced: 'All changes saved to the cloud',
+  offline: 'Offline. Changes will sync when you reconnect.',
+  error: 'Sync problem. Retrying automatically.',
+}
+
+function setSyncStatus(next: SyncStatus) {
+  syncStatus = next
+  const element = document.querySelector<HTMLElement>('#sync-status')
+  if (element) { element.textContent = syncStatusText[next]; element.dataset.state = next }
+}
+
+function markDirty() {
+  if (!cloudEnabled) return
+  isDirty = true
+  changeVersion += 1
+  localStorage.setItem(DIRTY_KEY, '1')
+  scheduleCloudPush()
+}
+
+function scheduleCloudPush(delay = 800) {
+  if (!currentUser) return
+  window.clearTimeout(syncTimer)
+  setSyncStatus(navigator.onLine ? 'syncing' : 'offline')
+  syncTimer = window.setTimeout(() => { void pushToCloud() }, delay)
+}
+
+async function pushToCloud() {
+  const user = currentUser
+  if (!user) return false
+  const version = changeVersion
+  try {
+    await saveProgress(user.uid, cloudSnapshot())
+    localStorage.setItem(OWNER_KEY, user.uid)
+    if (version === changeVersion) {
+      isDirty = false
+      localStorage.removeItem(DIRTY_KEY)
+      setSyncStatus('synced')
+    }
+    return true
+  } catch (error) {
+    console.error('Cloud save failed', error)
+    syncErrorCode = (error as { code?: string } | null)?.code ?? ''
+    scheduleCloudPush(15000)
+    setSyncStatus(navigator.onLine ? 'error' : 'offline')
+    return false
+  }
+}
+
+function adoptRemote(data: CloudRecord, uid: string) {
+  state = buildState(data)
+  const credential = data.resetCredential as ResetCredential | null | undefined
+  resetCredential = credential?.salt && credential?.hash ? credential : null
+  if (resetCredential) localStorage.setItem(RESET_CREDENTIAL_KEY, JSON.stringify(resetCredential))
+  else localStorage.removeItem(RESET_CREDENTIAL_KEY)
+  if (Array.isArray(data.quoteTags)) { selectedTags = data.quoteTags as string[]; localStorage.setItem('level-up-quote-tags', JSON.stringify(selectedTags)) }
+  if (Array.isArray(data.customQuotes)) { customQuotes = data.customQuotes as string[]; localStorage.setItem('level-up-custom-quotes', JSON.stringify(customQuotes)) }
+  localStorage.setItem('level-up-state', JSON.stringify(state))
+  localStorage.setItem(OWNER_KEY, uid)
+  isDirty = false
+  localStorage.removeItem(DIRTY_KEY)
+}
+
+function handleRemoteProgress(data: CloudRecord | null, meta: { pending: boolean; fromCache: boolean }) {
+  const user = currentUser
+  if (!user || meta.pending) return
+  const owner = localStorage.getItem(OWNER_KEY)
+  let changed = false
+
+  if (!data) {
+    // A cache miss only means the server has not answered yet.
+    if (meta.fromCache) return
+    if (owner && owner !== user.uid) {
+      state = buildState({})
+      resetCredential = null
+      localStorage.removeItem(RESET_CREDENTIAL_KEY)
+      changed = true
+    }
+    localStorage.setItem(OWNER_KEY, user.uid)
+    markDirty()
+  } else if (stableStringify(normalizeRemote(data)) === stableStringify(cloudSnapshot())) {
+    localStorage.setItem(OWNER_KEY, user.uid)
+    isDirty = false
+    localStorage.removeItem(DIRTY_KEY)
+    setSyncStatus('synced')
+  } else if (isDirty && owner === user.uid) {
+    scheduleCloudPush(0)
+  } else {
+    if (owner !== user.uid && hasMeaningfulProgress()) localStorage.setItem('level-up-state-backup', JSON.stringify(state))
+    adoptRemote(data, user.uid)
+    setSyncStatus('synced')
+    changed = true
+  }
+
+  // Missed-day penalties wait for a server-confirmed copy so a stale device cannot overwrite newer progress.
+  if (!meta.fromCache && !firstSyncDone) {
+    firstSyncDone = true
+    applyMissedDayPenalties()
+    changed = true
+  }
+  if (awaitingFirstSync) { awaitingFirstSync = false; changed = true }
+  if (changed) render()
+}
+
+function startCloudSync() {
+  window.addEventListener('online', () => {
+    if (!currentUser) return
+    if (isDirty) scheduleCloudPush(0)
+    else setSyncStatus('synced')
+  })
+  window.addEventListener('offline', () => { if (currentUser) setSyncStatus('offline') })
+  watchUser((user) => {
+    stopProgressWatch?.()
+    stopProgressWatch = null
+    window.clearTimeout(syncTimer)
+    currentUser = user
+    authReady = true
+    firstSyncDone = false
+    awaitingFirstSync = user !== null && localStorage.getItem(OWNER_KEY) !== user.uid
+    if (user) {
+      setSyncStatus(navigator.onLine ? 'syncing' : 'offline')
+      stopProgressWatch = watchProgress(user.uid, handleRemoteProgress, (error) => {
+        console.error('Cloud sync failed', error)
+        syncErrorCode = (error as { code?: string } | null)?.code ?? ''
+        setSyncStatus(navigator.onLine ? 'error' : 'offline')
+        if (awaitingFirstSync) render()
+      })
+    }
+    render()
+  })
+}
+
+async function signOutAndClear() {
+  window.clearTimeout(syncTimer)
+  if (isDirty && currentUser) {
+    const saved = await Promise.race([pushToCloud(), new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 8000))])
+    if (!saved) return false
+  }
+  stopProgressWatch?.()
+  stopProgressWatch = null
+  await signOutUser()
+  // The cloud copy is the source of truth, so nothing from this account stays on the device.
+  ;['level-up-state', OWNER_KEY, DIRTY_KEY, RESET_CREDENTIAL_KEY, 'level-up-quote-tags', 'level-up-custom-quotes'].forEach((key) => localStorage.removeItem(key))
+  state = buildState({})
+  resetCredential = null
+  selectedTags = ['exercise', 'motivational']
+  customQuotes = []
+  isDirty = false
+  activeTab = 'home'
+  todayMode = 'choose'
+  todayCompletionOpen = false
+  currentQuote = null
+  return true
+}
+
+function renderAuthGate() {
+  let body: string
+  if (!authReady) {
+    body = '<p class="kicker">LEVEL UP</p><h2>Loading…</h2>'
+  } else if (currentUser) {
+    const problem = syncStatus === 'error' || syncStatus === 'offline'
+    const problemText = syncErrorCode === 'permission-denied'
+      ? 'The cloud database refused access. In the Firebase console, publish the Firestore rules from firestore.rules, then reload the app.'
+      : 'Your saved progress is not reachable yet. Check your connection; this continues automatically once it is.'
+    body = `<p class="kicker">SYNCING</p><h2>Loading your progress…</h2><p class="auth-hint">${problem ? problemText : 'Fetching your saved progress from your account.'}</p><button class="small-button auth-secondary" id="auth-signout" type="button">SIGN OUT</button>`
+  } else {
+    const isSignUp = authMode === 'signup'
+    const disabled = authBusy ? 'disabled' : ''
+    body = `<p class="kicker">ACCOUNT</p><h2>${isSignUp ? 'Create account' : 'Sign in'}</h2>
+      <p class="auth-hint">Your progress is saved to your account, so you can continue on any device.</p>
+      <form id="auth-form" novalidate>
+        <label class="auth-field"><span>EMAIL</span><input id="auth-email" type="email" inputmode="email" autocomplete="email" value="${escapeHtml(authEmail)}" ${disabled}></label>
+        <label class="auth-field"><span>PASSWORD</span><input id="auth-password" type="password" autocomplete="${isSignUp ? 'new-password' : 'current-password'}" placeholder="${isSignUp ? 'At least 6 characters' : ''}" ${disabled}></label>
+        ${isSignUp ? '<p class="auth-hint auth-reset-code-note">Choose a six-digit reset code. It will be used only as an extra confirmation before permanently erasing your progress. It is not your sign-in or account recovery code.</p><label class="auth-field"><span>RESET CODE</span><input id="auth-reset-code" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 digits" ' + disabled + '></label><label class="auth-field"><span>CONFIRM RESET CODE</span><input id="auth-reset-code-confirm" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Enter it again" ' + disabled + '></label>' : ''}
+        ${authMessage ? `<p class="auth-message ${authMessageKind}" role="alert">${escapeHtml(authMessage)}</p>` : ''}
+        <button class="small-button auth-submit" type="submit" ${disabled}>${authBusy ? 'PLEASE WAIT…' : isSignUp ? 'CREATE ACCOUNT' : 'SIGN IN'}</button>
+      </form>
+      <div class="auth-links"><button type="button" id="auth-toggle">${isSignUp ? 'I already have an account' : 'Create an account'}</button>${isSignUp ? '' : '<button type="button" id="auth-reset">Forgot password?</button>'}</div>`
+  }
+  document.querySelector<HTMLDivElement>('#app')!.innerHTML = `<div class="app-shell auth-shell"><main class="auth-main"><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><section class="auth-card">${body}</section></main></div>`
+
+  const emailInput = document.querySelector<HTMLInputElement>('#auth-email')
+  emailInput?.addEventListener('input', () => { authEmail = emailInput.value })
+  document.querySelector('#auth-signout')?.addEventListener('click', () => { void signOutAndClear() })
+  document.querySelector('#auth-toggle')?.addEventListener('click', () => {
+    authMode = authMode === 'signin' ? 'signup' : 'signin'
+    authMessage = ''
+    renderAuthGate()
+  })
+  document.querySelector('#auth-reset')?.addEventListener('click', async () => {
+    authEmail = emailInput?.value.trim() ?? ''
+    if (!authEmail) {
+      authMessage = 'Enter your email above, then tap "Forgot password?".'
+      authMessageKind = 'error'
+    } else {
+      try {
+        await sendReset(authEmail)
+        authMessage = 'Password reset email sent. Check your inbox.'
+        authMessageKind = 'info'
+      } catch (error) {
+        authMessage = describeAuthError(error)
+        authMessageKind = 'error'
+      }
+    }
+    renderAuthGate()
+  })
+  document.querySelector('#auth-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    authEmail = emailInput?.value.trim() ?? ''
+    const password = document.querySelector<HTMLInputElement>('#auth-password')?.value ?? ''
+    const isSignUp = authMode === 'signup'
+    const resetCode = document.querySelector<HTMLInputElement>('#auth-reset-code')?.value ?? ''
+    const resetCodeConfirmation = document.querySelector<HTMLInputElement>('#auth-reset-code-confirm')?.value ?? ''
+    if (!authEmail || !password) {
+      authMessage = 'Enter your email and password.'
+      authMessageKind = 'error'
+      renderAuthGate()
+      return
+    }
+    if (isSignUp && !/^\d{6}$/.test(resetCode)) {
+      authMessage = 'Choose a six-digit reset code.'
+      authMessageKind = 'error'
+      renderAuthGate()
+      return
+    }
+    if (isSignUp && resetCode !== resetCodeConfirmation) {
+      authMessage = 'The reset codes do not match.'
+      authMessageKind = 'error'
+      renderAuthGate()
+      return
+    }
+    const previousCredential = resetCredential
+    authBusy = true
+    authMessage = ''
+    renderAuthGate()
+    let succeeded = true
+    try {
+      if (isSignUp) {
+        resetCredential = await hashResetCode(resetCode)
+        localStorage.setItem(RESET_CREDENTIAL_KEY, JSON.stringify(resetCredential))
+        await signUpWithEmail(authEmail, password)
+      }
+      else await signInWithEmail(authEmail, password)
+    } catch (error) {
+      succeeded = false
+      if (isSignUp) {
+        resetCredential = previousCredential
+        if (resetCredential) localStorage.setItem(RESET_CREDENTIAL_KEY, JSON.stringify(resetCredential))
+        else localStorage.removeItem(RESET_CREDENTIAL_KEY)
+      }
+      authMessage = error instanceof Error && !('code' in error) ? error.message : describeAuthError(error)
+      authMessageKind = 'error'
+    }
+    authBusy = false
+    // On success the auth listener renders the next screen.
+    if (!succeeded) renderAuthGate()
+  })
+}
+
 // Legacy saves have no per-day XP, so estimate it once from logged exercises and check-ins.
 if (needsXpBackfill || needsBreakdownBackfill) {
   const recordSource = (dateKey: string, source: string, amount: number) => {
@@ -1104,7 +1486,11 @@ if (needsXpBackfill || needsBreakdownBackfill) {
       state.xpHistory[dateKey] = roundXp(Object.values(sources).reduce((sum, amount) => sum + amount, 0))
     })
   }
-  save()
+  localStorage.setItem('level-up-state', JSON.stringify(state))
 }
-applyMissedDayPenalties()
+if (cloudEnabled) {
+  startCloudSync()
+} else {
+  applyMissedDayPenalties()
+}
 render()
