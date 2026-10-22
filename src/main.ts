@@ -17,6 +17,8 @@ type TrainingState = {
   dailyLogs: Record<string, Record<string, number>>;
   activityDates: Record<string, true>;
   attendanceDates: Record<string, DayMode>;
+  xpHistory: Record<string, number>;
+  xpBreakdown: Record<string, Record<string, number>>;
   customExercises: ExerciseEntry[];
   customChallenges: Challenge[];
   savedChallenges: Challenge[];
@@ -28,7 +30,7 @@ const XP_CONFIG = {
   levelThresholds: [0, 333, 778, 1444, 2333, 3333, 4555, 5999, 7777],
   exercise: {
     push: 0.1,
-    run: 5,
+    run: 2.5,
     custom: 0.1,
     trainingAttendanceBonus: 1,
     recoveryAttendanceBonus: 2,
@@ -73,6 +75,8 @@ let state: TrainingState = {
   dailyLogs: oldState.dailyLogs ?? {},
   activityDates: oldState.activityDates ?? {},
   attendanceDates: oldState.attendanceDates ?? {},
+  xpHistory: oldState.xpHistory ?? {},
+  xpBreakdown: oldState.xpBreakdown ?? {},
   customExercises: (oldState.customExercises ?? []).map((exercise: Partial<ExerciseEntry>) => ({
     id: exercise.id ?? buildExerciseId(exercise.label ?? 'exercise'),
     label: exercise.label ?? 'Custom exercise',
@@ -84,6 +88,18 @@ let state: TrainingState = {
   lastAttendanceCheckDate: oldState.lastAttendanceCheckDate ?? oldState.lastDecayDate,
 }
 const save = () => localStorage.setItem('level-up-state', JSON.stringify(state))
+const needsXpBackfill = !oldState.xpHistory
+const needsBreakdownBackfill = !oldState.xpBreakdown
+const roundXp = (value: number) => Math.round(value * 10) / 10
+const addXp = (dateKey: string, amount: number, source: string) => {
+  const before = state.xp
+  state.xp = Math.max(0, state.xp + amount)
+  const applied = state.xp - before
+  state.xpHistory[dateKey] = roundXp((state.xpHistory[dateKey] ?? 0) + applied)
+  const day = state.xpBreakdown[dateKey] ?? {}
+  day[source] = roundXp((day[source] ?? 0) + applied)
+  state.xpBreakdown[dateKey] = day
+}
 const challenges = () => state.savedChallenges
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
 const current = () => levels[Math.min(state.currentLevel - 1, levels.length - 1)]
@@ -139,7 +155,7 @@ const recordAttendance = (mode: DayMode) => {
   if (mode === 'training') recordTrainingDay(dateKey)
 
   const credit = getAttendanceCredit(mode)
-  state.xp += credit
+  addXp(dateKey, credit, `attendance:${mode}`)
   syncLevelFromXp()
   save()
   return credit
@@ -190,7 +206,7 @@ const applyMissedDayPenalties = () => {
   let dateKey = getNextDateKey(state.lastAttendanceCheckDate)
   while (dateKey <= throughDate) {
     if (!state.attendanceDates[dateKey] && !hasTrainingActivity(dateKey)) {
-      state.xp = Math.max(0, state.xp - XP_CONFIG.exercise.missPenalty)
+      addXp(dateKey, -XP_CONFIG.exercise.missPenalty, 'penalty')
     }
     state.lastAttendanceCheckDate = dateKey
     dateKey = getNextDateKey(dateKey)
@@ -249,6 +265,9 @@ let editingChallengeIndex: number | null = null
 let todayCompletionOpen = false
 let todayMode: 'choose' | 'training' | 'recovery' = 'choose'
 let systemInfoOpen = false
+let xpChartRange: 7 | 14 | 30 | 90 = 14
+let selectedXpDate: string | null = null
+const XP_RANGES = [7, 14, 30, 90] as const
 async function loadQuote() {
   quoteLoading = true
   render()
@@ -552,6 +571,82 @@ function renderChallengesTab() {
     <section class="challenge-result ${challenge.className}"><p class="kicker">YOUR CHALLENGE</p><h3>${escapeHtml(challenge.name)}</h3><p>${escapeHtml(challenge.detail)}</p><div class="challenge-footer"><span>REWARD <b>+${challenge.reward} XP</b></span><button class="small-button" id="challenge-button" type="button" ${state.challengeDone ? 'disabled' : ''}>${state.challengeDone ? 'COMPLETED' : 'COMPLETE'} <span>↗</span></button></div>${customFormMarkup}<button class="small-button add-custom-challenge" id="add-custom-challenge" type="button">ADD CHALLENGE</button>${challengeManagementMarkup}</section>`
 }
 
+const formatXp = (value: number) => `${Math.round(value * 10) / 10}`
+const renderXpChart = () => {
+  const days = Array.from({ length: xpChartRange }, (_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() - (xpChartRange - 1 - index))
+    const dateKey = localDateKey(date)
+    return { date, dateKey, xp: state.xpHistory[dateKey] ?? 0 }
+  })
+  const values = days.map((day) => day.xp)
+  const activeDays = values.filter((value) => value > 0).length
+  const best = Math.max(...values, 0)
+  const selectedKey = days.some((day) => day.dateKey === selectedXpDate) ? selectedXpDate! : days[days.length - 1].dateKey
+
+  const niceCeil = (value: number) => {
+    const magnitude = 10 ** Math.floor(Math.log10(value))
+    return ([1, 2, 5, 10].find((step) => step * magnitude >= value) ?? 10) * magnitude
+  }
+  const yMax = niceCeil(Math.max(best, 1))
+  const yMin = Math.min(...values) < 0 ? -niceCeil(Math.abs(Math.min(...values))) : 0
+  const width = 320
+  const height = 150
+  const plot = { left: 8, right: 52, top: 12, bottom: 26 }
+  const plotWidth = width - plot.left - plot.right
+  const plotHeight = height - plot.top - plot.bottom
+  const xAt = (index: number) => plot.left + (days.length === 1 ? plotWidth / 2 : (index / (days.length - 1)) * plotWidth)
+  const yAt = (value: number) => plot.top + (1 - (value - yMin) / (yMax - yMin)) * plotHeight
+  const points = days.map((day, index) => ({ x: xAt(index), y: yAt(day.xp), xp: day.xp }))
+  const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ')
+  const baseline = yAt(0)
+  const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(1)} ${baseline.toFixed(1)} L${points[0].x.toFixed(1)} ${baseline.toFixed(1)} Z`
+  const gridValues = yMin < 0 ? [yMax, 0, yMin] : [yMax, yMax / 2, 0]
+  const grid = gridValues.map((value) => `<line class="xp-grid" x1="${plot.left}" x2="${plot.left + plotWidth}" y1="${yAt(value).toFixed(1)}" y2="${yAt(value).toFixed(1)}"/><text class="xp-axis-label" x="${plot.left + plotWidth + 8}" y="${(yAt(value) + 3).toFixed(1)}">${formatXp(value)} XP</text>`).join('')
+  const labelIndexes = [0, Math.floor((days.length - 1) / 2), days.length - 1]
+  const dateLabels = labelIndexes.map((index, position) => `<text class="xp-date-label" x="${xAt(index).toFixed(1)}" y="${height - 6}" text-anchor="${position === 0 ? 'start' : position === 2 ? 'end' : 'middle'}">${days[index].date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</text>`).join('')
+  const dots = points.map((point, index) => `<circle class="xp-dot ${days[index].dateKey === selectedKey ? 'is-selected' : ''}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${days[index].dateKey === selectedKey ? 4.5 : days.length > 30 ? 1.4 : 2.5}"/>`).join('')
+  const selectedIndex = days.findIndex((day) => day.dateKey === selectedKey)
+  const guide = `<line class="xp-guide" x1="${points[selectedIndex].x.toFixed(1)}" x2="${points[selectedIndex].x.toFixed(1)}" y1="${plot.top}" y2="${plot.top + plotHeight}"/>`
+  const columnWidth = days.length === 1 ? plotWidth : plotWidth / (days.length - 1)
+  const hitColumns = points.map((point, index) => `<rect class="xp-hit" data-xp-date="${days[index].dateKey}" x="${(point.x - columnWidth / 2).toFixed(1)}" y="${plot.top}" width="${columnWidth.toFixed(1)}" height="${plotHeight}"><title>${days[index].date.toLocaleDateString()}: ${point.xp > 0 ? '+' : ''}${formatXp(point.xp)} XP</title></rect>`).join('')
+  const rangeButtons = XP_RANGES.map((range) => `<button class="xp-range-button ${range === xpChartRange ? 'active' : ''}" data-xp-range="${range}" type="button" aria-pressed="${range === xpChartRange}">${range === 90 ? '3M' : `${range}D`}</button>`).join('')
+  const hasData = values.some((value) => value !== 0)
+  const sourceLabel = (source: string) => {
+    if (source === 'attendance:training') return 'Training check-in'
+    if (source === 'attendance:recovery') return 'Recovery check-in'
+    if (source === 'attendance') return state.attendanceDates[selectedKey] === 'recovery' ? 'Recovery check-in' : 'Training check-in'
+    if (source === 'penalty') return 'Missed day penalty'
+    if (source.startsWith('exercise:')) {
+      const id = source.slice('exercise:'.length)
+      return exercises().find((exercise) => exercise.id === id)?.label ?? id
+    }
+    if (source.startsWith('challenge:')) return `Challenge · ${source.slice('challenge:'.length)}`
+    return source
+  }
+  const sourceDetail = (source: string) => {
+    if (!source.startsWith('exercise:')) return ''
+    const id = source.slice('exercise:'.length)
+    const count = state.dailyLogs[selectedKey]?.[id]
+    if (count === undefined) return ''
+    const unit = id === 'run' ? 'km' : id === 'push' ? 'reps' : (state.customExercises.find((exercise) => exercise.id === id)?.unitLabel ?? 'unit')
+    return `${count} ${unit}`
+  }
+  const selectedDay = days[selectedIndex]
+  const sourceRows: { label: string; amount: number; detail?: string }[] = Object.entries(state.xpBreakdown[selectedKey] ?? {}).filter(([, amount]) => amount !== 0).map(([source, amount]) => ({ label: sourceLabel(source), amount, detail: sourceDetail(source) }))
+  const unexplained = roundXp(selectedDay.xp - sourceRows.reduce((sum, row) => sum + row.amount, 0))
+  if (unexplained !== 0) sourceRows.push({ label: 'Other activity', amount: unexplained })
+  const signed = (value: number) => `${value > 0 ? '+' : ''}${formatXp(value)} XP`
+  const dayDetail = `<div class="xp-day-detail" aria-live="polite"><div class="xp-day-head"><span>${selectedDay.date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</span><strong class="${selectedDay.xp < 0 ? 'is-negative' : ''}">${signed(selectedDay.xp)}</strong></div>${sourceRows.length ? `<ul class="xp-day-sources">${sourceRows.map((row) => `<li><span>${escapeHtml(row.label)}</span>${row.detail ? `<em>${escapeHtml(row.detail)}</em>` : ''}<b class="${row.amount < 0 ? 'is-negative' : ''}">${signed(row.amount)}</b></li>`).join('')}</ul>` : '<p class="xp-day-empty">No XP recorded this day.</p>'}</div>`
+  return `<section class="xp-chart-card" aria-label="Daily XP chart">
+    <div class="xp-chart-heading"><p class="kicker">DAILY XP</p><div class="xp-range">${rangeButtons}</div></div>
+    <div class="xp-chart-stats"><div class="xp-active-days"><span>Active days</span><strong>${activeDays}/${days.length}</strong></div></div>
+    <svg class="xp-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="XP earned each day over the last ${days.length} days. Select a day for details."><defs><linearGradient id="xp-area-fill" x1="0" y1="0" x2="0" y2="1"><stop class="xp-fill-top" offset="0"/><stop class="xp-fill-bottom" offset="1"/></linearGradient></defs>${grid}<path class="xp-area" d="${areaPath}"/>${guide}<path class="xp-line" d="${linePath}"/>${dots}${dateLabels}${hitColumns}</svg>
+    ${hasData ? '' : '<p class="xp-chart-empty">Log a workout or start a day to see your XP trend.</p>'}
+    ${dayDetail}
+  </section>`
+}
+
 function renderProfileTab(level: ReturnType<typeof current>) {
   const progress = getLevelProgress()
   const stats = hunterStats()
@@ -595,6 +690,7 @@ function renderProfileTab(level: ReturnType<typeof current>) {
       `).join('')}
     </section>
     ${renderDayCountSummary('profile-day-counts')}
+    ${renderXpChart()}
     <section class="system-stats" aria-label="Hunter stats">
       <div class="system-stats-heading"><p class="kicker">SYSTEM STATUS</p><div class="system-stats-live"><span>LIVE VALUES</span><button class="system-info-button" id="system-stats-info" type="button" aria-label="How Hunter stats are calculated" aria-expanded="${systemInfoOpen}">i</button></div></div>
       ${systemInfoOpen ? `<div class="system-stats-info" id="system-stats-explanation"><p>Values are calculated from your saved training activity.</p><ul><li><b>STR</b> = total push-ups / 10</li><li><b>VIT</b> = completed workout days</li><li><b>AGI</b> = total run distance in km</li><li><b>END</b> = attended workout or recovery days</li><li><b>DEX</b> = custom exercises created</li></ul></div>` : ''}
@@ -680,7 +776,7 @@ function render() {
     state.exerciseTotals[id] = (state.exerciseTotals[id] ?? 0) + enteredCount
     const xpGain = getExerciseXpGain(id) * enteredCount
     const xpText = id === 'run' ? `${enteredCount} km` : `${enteredCount} reps`
-    state.xp += xpGain
+    addXp(date, xpGain, `exercise:${id}`)
     syncLevelFromXp()
     save(); render(); showToast(`${xpText} logged · +${xpGain.toFixed(1)} XP`)
   }))
@@ -936,13 +1032,23 @@ function render() {
     const challenge = challenges()[selectedChallengeIndex]
     recordTrainingDay(todayKey())
     state.challengeDone = true
-    state.xp += challenge.reward
+    addXp(todayKey(), challenge.reward, `challenge:${challenge.name}`)
     syncLevelFromXp()
     save()
     render()
     showToast(`${challenge.name} completed · +${challenge.reward} XP`)
   })
   document.querySelector('#profile')?.addEventListener('click', () => { activeTab = 'profile'; render() })
+  document.querySelectorAll<HTMLButtonElement>('.xp-range-button').forEach((button) => button.addEventListener('click', () => {
+    const range = Number(button.dataset.xpRange)
+    if (range !== 7 && range !== 14 && range !== 30 && range !== 90) return
+    xpChartRange = range
+    render()
+  }))
+  document.querySelectorAll<SVGRectElement>('.xp-hit').forEach((column) => column.addEventListener('click', () => {
+    selectedXpDate = column.dataset.xpDate ?? null
+    render()
+  }))
   document.querySelector('#reset-progress')?.addEventListener('click', () => {
     resetConfirmationOpen = true
     render()
@@ -954,7 +1060,7 @@ function render() {
   document.querySelector('#confirm-reset')?.addEventListener('click', () => {
     resetConfirmationOpen = false
 
-    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, attendanceDates: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], lastAttendanceCheckDate: undefined }
+    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, attendanceDates: {}, xpHistory: {}, xpBreakdown: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], lastAttendanceCheckDate: undefined }
     save()
     render()
     showToast('Progress reset to Level 1')
@@ -983,6 +1089,22 @@ function render() {
     activeTab = tab
     render()
   }))
+}
+// Legacy saves have no per-day XP, so estimate it once from logged exercises and check-ins.
+if (needsXpBackfill || needsBreakdownBackfill) {
+  const recordSource = (dateKey: string, source: string, amount: number) => {
+    state.xpBreakdown[dateKey] = { ...(state.xpBreakdown[dateKey] ?? {}), [source]: roundXp(amount) }
+  }
+  Object.entries(state.attendanceDates).forEach(([dateKey, mode]) => recordSource(dateKey, `attendance:${mode}`, getAttendanceCredit(mode)))
+  Object.entries(state.dailyLogs).forEach(([dateKey, log]) => {
+    Object.entries(log).forEach(([id, count]) => recordSource(dateKey, `exercise:${id}`, getExerciseXpGain(id) * count))
+  })
+  if (needsXpBackfill) {
+    Object.entries(state.xpBreakdown).forEach(([dateKey, sources]) => {
+      state.xpHistory[dateKey] = roundXp(Object.values(sources).reduce((sum, amount) => sum + amount, 0))
+    })
+  }
+  save()
 }
 applyMissedDayPenalties()
 render()
