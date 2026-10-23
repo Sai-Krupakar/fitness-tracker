@@ -1440,11 +1440,19 @@ function renderAuthGate() {
       </form>
       <div class="auth-links"><button type="button" id="auth-toggle">${isSignUp ? 'I already have an account' : 'Create an account'}</button>${isSignUp ? '' : '<button type="button" id="auth-reset">Forgot password?</button>'}</div>`
   }
-  document.querySelector<HTMLDivElement>('#app')!.innerHTML = `<div class="app-shell auth-shell"><main class="auth-main"><div class="auth-scene" aria-hidden="true"><video class="app-video auth-background-video" autoplay muted loop playsinline preload="auto"><source src="${authBackgroundVideo}" type="video/mp4"></video><span class="auth-video-overlay"></span><span class="auth-portal"></span><span class="auth-shadow"><i></i><i></i></span><span class="auth-particle auth-particle-a"></span><span class="auth-particle auth-particle-b"></span><span class="auth-particle auth-particle-c"></span><span class="auth-floor"></span></div><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><section class="auth-card">${body}</section>${signOutConfirmationOpen ? renderSignOutConfirmation() : ''}</main></div>`
-  const backgroundVideo = document.querySelector<HTMLVideoElement>('.auth-background-video')
-  const revealBackground = () => backgroundVideo?.classList.add('is-ready')
-  backgroundVideo?.addEventListener('canplay', revealBackground, { once: true })
-  if (backgroundVideo && backgroundVideo.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) revealBackground()
+  const app = document.querySelector<HTMLDivElement>('#app')!
+  const existingAuthCard = app.querySelector<HTMLElement>('.auth-shell .auth-card')
+  if (existingAuthCard) {
+    existingAuthCard.innerHTML = body
+    app.querySelector('.confirmation-dialog')?.remove()
+    if (signOutConfirmationOpen) app.querySelector('.auth-main')?.insertAdjacentHTML('beforeend', renderSignOutConfirmation())
+  } else {
+    app.innerHTML = `<div class="app-shell auth-shell"><main class="auth-main"><div class="auth-scene" aria-hidden="true"><video class="app-video auth-background-video" autoplay muted loop playsinline preload="auto"><source src="${authBackgroundVideo}" type="video/mp4"></video><span class="auth-video-overlay"></span><span class="auth-portal"></span><span class="auth-shadow"><i></i><i></i></span><span class="auth-particle auth-particle-a"></span><span class="auth-particle auth-particle-b"></span><span class="auth-particle auth-particle-c"></span><span class="auth-floor"></span></div><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><section class="auth-card">${body}</section>${signOutConfirmationOpen ? renderSignOutConfirmation() : ''}</main></div>`
+    const backgroundVideo = document.querySelector<HTMLVideoElement>('.auth-background-video')
+    const revealBackground = () => backgroundVideo?.classList.add('is-ready')
+    backgroundVideo?.addEventListener('canplay', revealBackground, { once: true })
+    if (backgroundVideo && backgroundVideo.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) revealBackground()
+  }
 
   const emailInput = document.querySelector<HTMLInputElement>('#auth-email')
   emailInput?.addEventListener('input', () => { authEmail = emailInput.value })
