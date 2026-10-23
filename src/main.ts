@@ -5,6 +5,7 @@ import patternStorageVideo from './assets/From Klickpin.com- Practical pattern s
 import oldMoneyOutfitVideo from './assets/From Klickpin.com- Chic old money outfit ideas that make everyday moments look more intentional memorable and beautifully styled for busy people w.mp4'
 import travelPackingVideo from './assets/From Klickpin.com- Pin these 28 Practical travel packing tips that are worth saving if you love elegant details and creative inspiration for begin.mp4'
 import summerOutfitVideo from './assets/From Klickpin.com- Try Simple summer outfit ideas that can instantly upgrade your look room party or daily routine for your next inspiration board.mp4'
+import authBackgroundVideo from './assets/From Klickpin.com- Creative hemming tricks and clever inspiration for simple living to pin for your next project-pin-id-734790495486499121.mp4'
 
 type ExerciseEntry = { id: string; label: string; xpPerUnit: number; unitLabel: string }
 type Challenge = { name: string; detail: string; reward: number; className: string }
@@ -294,17 +295,26 @@ const storedTags = localStorage.getItem('level-up-quote-tags')
 let selectedTags: string[] = storedTags ? JSON.parse(storedTags).map((tag: string) => tag === 'gym' ? 'exercise' : tag) : ['exercise', 'motivational']
 const saveTags = () => { localStorage.setItem('level-up-quote-tags', JSON.stringify(selectedTags)); markDirty() }
 const storedCustomQuotes = localStorage.getItem('level-up-custom-quotes')
-let customQuotes: string[] = storedCustomQuotes ? JSON.parse(storedCustomQuotes) : []
-const saveCustomQuotes = () => { localStorage.setItem('level-up-custom-quotes', JSON.stringify(customQuotes)); markDirty() }
+const storedSavedQuotes = localStorage.getItem('level-up-saved-quotes')
+const legacyCustomQuotes: string[] = storedCustomQuotes ? JSON.parse(storedCustomQuotes) : []
+const legacySavedQuotes: { text?: string; savedAt?: number }[] = storedSavedQuotes ? JSON.parse(storedSavedQuotes) : []
+const latestLegacyQuote = [...legacySavedQuotes].sort((left, right) => (right.savedAt ?? 0) - (left.savedAt ?? 0)).find((quote) => quote.text)?.text
+let currentQuote: string | null = localStorage.getItem('level-up-current-quote') || latestLegacyQuote || legacyCustomQuotes.at(-1) || null
+if (currentQuote) localStorage.setItem('level-up-current-quote', currentQuote)
+;['level-up-custom-quotes', 'level-up-saved-quotes'].forEach((key) => localStorage.removeItem(key))
+const setCurrentQuote = (text: string) => {
+  currentQuote = text
+  localStorage.setItem('level-up-current-quote', text)
+  markDirty()
+}
 
 let activeTab: Tab = 'home'
 let tagDropdownOpen = false
-let currentQuote: string | null = null
 let quoteLoading = false
-let quoteIsDefault = false
 let customQuoteFormOpen = false
 let customExerciseFormOpen = false
 let resetConfirmationOpen = false
+let signOutConfirmationOpen = false
 let resetCodeStep: 'setup' | 'verify' | 'confirm' = 'verify'
 let resetCodeError = ''
 let resetCodeBusy = false
@@ -333,16 +343,9 @@ async function loadQuote() {
     const data = await response.json().catch(() => null) as { text?: string; error?: string } | null
     if (!response.ok) throw new Error(data?.error ?? 'Quote service is unavailable. Please try again.')
     if (!data?.text) throw new Error(data?.error ?? 'Quote service returned an empty response. Please try again.')
-    currentQuote = data.text
-    quoteIsDefault = false
+    setCurrentQuote(data.text)
   } catch (error) {
     console.error('Quote request failed', error)
-    currentQuote = error instanceof TypeError
-      ? 'Unable to reach the quote service. Check your internet connection.'
-      : error instanceof Error
-        ? error.message
-        : 'Unable to generate a quote right now. Please try again.'
-    quoteIsDefault = false
   } finally {
     quoteLoading = false
     render()
@@ -404,10 +407,9 @@ function renderHomeTab(level: ReturnType<typeof current>) {
     <div class="xp-rule"><span>Training attendance : </span><strong>+${XP_CONFIG.exercise.trainingAttendanceBonus} XP</strong></div>
     <div class="xp-rule"><span>Recovery attendance : </span><strong>+${XP_CONFIG.exercise.recoveryAttendanceBonus} XP</strong></div>
     <div class="xp-rule xp-rule-penalty"><span>Missed day : </span><strong>-${XP_CONFIG.exercise.missPenalty} XP</strong></div>`
-  const quoteSuffix = quoteIsDefault ? ' (Default)' : ''
   let quoteMarkup = ''
   if (quoteLoading) quoteMarkup = '<p class="quote">Loading today’s quote…</p>'
-  if (!quoteLoading && currentQuote) quoteMarkup = `<p class="quote">“${currentQuote}”${quoteSuffix}</p>`
+  if (!quoteLoading && currentQuote) quoteMarkup = `<p class="quote">“${escapeHtml(currentQuote)}”</p>`
   return `
     <section class="hero-panel">
       <div class="hero-glow hero-glow-a"></div>
@@ -703,16 +705,13 @@ function renderProfileTab(level: ReturnType<typeof current>) {
   const progress = getLevelProgress()
   const stats = hunterStats()
   const dayCounts = getDayCounts()
-  const accountCard = cloudEnabled && currentUser
-    ? `<section class="mission-card account-card"><div class="profile-stat"><span>Account</span><b>${escapeHtml(currentUser.email ?? 'Signed in')}</b></div><div class="profile-stat"><span>Cloud backup</span><b id="sync-status" data-state="${syncStatus}">${syncStatusText[syncStatus]}</b></div><button class="small-button account-signout" id="sign-out" type="button">SIGN OUT</button></section>`
-    : `<section class="mission-card account-card"><div class="profile-stat"><span>Cloud backup</span><b id="sync-status" data-state="local">${syncStatusText.local}</b></div></section>`
+  const accountCard = `<section class="mission-card account-card"><div class="profile-stat"><span>Cloud backup</span><b id="sync-status" data-state="${syncStatus}">${syncStatusText[syncStatus]}</b></div><div class="account-actions"><button class="small-button account-signout" id="sign-out" type="button">SIGN OUT</button><button class="reset-button" id="reset-progress" type="button">RESET LOCAL PROGRESS</button></div></section>`
   const badgeList = [
     { label: 'Hunter title', value: hunterTitle() },
     { label: 'Total plan days', value: `${dayCounts.total} ${dayCounts.total === 1 ? 'day' : 'days'}` },
     { label: 'Power level', value: `${state.xp} XP` },
     { label: 'Next rank', value: level.name },
   ]
-
   return `
     <section class="section-heading"><div><p class="kicker">PLAYER PROFILE</p><h2>Hunter status</h2></div></section>
     <section class="mission-card profile-hero">
@@ -753,11 +752,33 @@ function renderProfileTab(level: ReturnType<typeof current>) {
         ${stats.map((stat) => `<div class="system-stat"><b>${stat.label}</b><strong>${stat.value}</strong><span>${stat.detail}</span></div>`).join('')}
       </div>
     </section>
-    ${accountCard}
-    <section class="mission-card"><div class="profile-stat"><span>Current rank</span><b>Level ${String(state.currentLevel).padStart(2, '0')} · ${level.name}</b></div><div class="profile-stat"><span>Workout days</span><b>${dayCounts.training}</b></div><div class="profile-stat"><span>Progress style</span><b>SELF-PACED</b></div><div class="profile-stat"><span>Active quests</span><b>${challenges().length}</b></div><button class="reset-button" id="reset-progress">RESET LOCAL PROGRESS</button></section>`
+    ${accountCard}`
+}
+
+function wirePasswordVisibility() {
+  document.querySelectorAll<HTMLButtonElement>('.password-visibility').forEach((button) => button.addEventListener('click', () => {
+    const input = document.getElementById(button.dataset.passwordTarget ?? '') as HTMLInputElement | null
+    if (!input) return
+    const showValue = input.type === 'password'
+    input.type = showValue ? 'text' : 'password'
+    button.classList.toggle('is-visible', showValue)
+    button.setAttribute('aria-pressed', String(showValue))
+    const description = button.dataset.visibilityLabel ?? 'value'
+    button.setAttribute('aria-label', `${showValue ? 'Hide' : 'Show'} ${description}`)
+    button.title = `${showValue ? 'Hide' : 'Show'} ${description}`
+  }))
+}
+
+function renderCloudSetupGate() {
+  document.querySelector<HTMLDivElement>('#app')!.innerHTML = `<div class="app-shell auth-shell"><main class="auth-main"><div class="auth-scene" aria-hidden="true"><video class="app-video auth-background-video" autoplay muted loop playsinline preload="auto"><source src="${authBackgroundVideo}" type="video/mp4"></video><span class="auth-video-overlay"></span><span class="auth-portal"></span><span class="auth-shadow"><i></i><i></i></span><span class="auth-particle auth-particle-a"></span><span class="auth-particle auth-particle-b"></span><span class="auth-particle auth-particle-c"></span><span class="auth-floor"></span></div><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><section class="auth-card"><p class="kicker">CLOUD REQUIRED</p><h2>Cloud sync is not configured</h2><p class="auth-hint">This app requires a Firebase account to store your progress. Add all four Firebase web app values to <code>.env</code>, then restart the dev server or rebuild the Android app.</p></section></main></div>`
+  const backgroundVideo = document.querySelector<HTMLVideoElement>('.auth-background-video')
+  const revealBackground = () => backgroundVideo?.classList.add('is-ready')
+  backgroundVideo?.addEventListener('canplay', revealBackground, { once: true })
+  if (backgroundVideo && backgroundVideo.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) revealBackground()
 }
 
 function render() {
+  if (!cloudEnabled) { renderCloudSetupGate(); return }
   if (cloudEnabled && (!authReady || !currentUser || awaitingFirstSync)) { renderAuthGate(); return }
   const level = current()
   const log = todayLog()
@@ -795,8 +816,8 @@ function render() {
             : resetCodeStep === 'verify'
               ? 'Enter your six-digit reset code to continue. Your progress will not be changed until you confirm the reset on the next screen.'
               : `This will permanently remove your XP, exercise logs, completed days, and custom exercises.${cloudEnabled ? ' It also clears your cloud backup.' : ''}`}</p>
-          ${resetCodeStep === 'setup' ? `<div class="reset-code-fields"><label class="auth-field"><span>NEW SIX-DIGIT CODE</span><input id="reset-code-new" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label><label class="auth-field"><span>CONFIRM CODE</span><input id="reset-code-confirm" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label></div>` : ''}
-          ${resetCodeStep === 'verify' ? `<label class="auth-field reset-code-fields"><span>RESET CODE</span><input id="reset-code-entry" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label>` : ''}
+          ${resetCodeStep === 'setup' ? `<div class="reset-code-fields"><label class="auth-field"><span>NEW SIX-DIGIT CODE</span><div class="auth-password-control"><input id="reset-code-new" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">${renderVisibilityToggle('reset-code-new', 'reset code')}</div></label><label class="auth-field"><span>CONFIRM CODE</span><div class="auth-password-control"><input id="reset-code-confirm" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">${renderVisibilityToggle('reset-code-confirm', 'confirmation code')}</div></label></div>` : ''}
+          ${resetCodeStep === 'verify' ? `<label class="auth-field reset-code-fields"><span>RESET CODE</span><div class="auth-password-control"><input id="reset-code-entry" type="password" inputmode="numeric" maxlength="6" autocomplete="off">${renderVisibilityToggle('reset-code-entry', 'reset code')}</div></label>` : ''}
           ${resetCodeError ? `<p class="auth-message error" role="alert">${escapeHtml(resetCodeError)}</p>` : ''}
           <div class="confirmation-actions">
             <button class="small-button secondary-button" id="cancel-reset" type="button">CANCEL</button>
@@ -806,6 +827,7 @@ function render() {
           </div>
         </section>
       </div>` : ''}
+      ${signOutConfirmationOpen ? renderSignOutConfirmation() : ''}
       ${pendingExerciseDeletion ? `<div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
         <div class="confirmation-backdrop" id="cancel-exercise-delete"></div>
         <section class="confirmation-panel">
@@ -820,6 +842,7 @@ function render() {
       </div>` : ''}
     </div>`
 
+  wirePasswordVisibility()
   document.querySelectorAll<HTMLVideoElement>('video.app-video').forEach((video) => {
     const revealVideo = () => video.classList.add('is-ready')
     video.addEventListener('canplay', revealVideo, { once: true })
@@ -897,10 +920,7 @@ function render() {
       showToast('Write a quote first')
       return
     }
-    customQuotes.push(quote)
-    saveCustomQuotes()
-    currentQuote = quote
-    quoteIsDefault = false
+    setCurrentQuote(quote)
     customQuoteFormOpen = false
     render()
     showToast('Your quote was added')
@@ -1105,9 +1125,18 @@ function render() {
     showToast(`${challenge.name} completed · +${challenge.reward} XP`)
   })
   document.querySelector('#profile')?.addEventListener('click', () => { activeTab = 'profile'; render() })
-  document.querySelector('#sign-out')?.addEventListener('click', async () => {
+  document.querySelector('#sign-out')?.addEventListener('click', () => {
+    signOutConfirmationOpen = true
+    render()
+  })
+  document.querySelectorAll<HTMLElement>('#cancel-sign-out').forEach((element) => element.addEventListener('click', () => {
+    signOutConfirmationOpen = false
+    render()
+  }))
+  document.querySelector('#confirm-sign-out')?.addEventListener('click', async () => {
+    signOutConfirmationOpen = false
     const signedOut = await signOutAndClear()
-    if (!signedOut) showToast('Could not save your latest changes. Check your connection and try again.')
+    if (!signedOut) { render(); showToast('Could not save your latest changes. Check your connection and try again.') }
   })
   document.querySelectorAll<HTMLButtonElement>('.xp-range-button').forEach((button) => button.addEventListener('click', () => {
     const range = Number(button.dataset.xpRange)
@@ -1203,20 +1232,28 @@ function render() {
 const stableStringify = (value: unknown) => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
   : item)
-const cloudSnapshot = () => JSON.parse(JSON.stringify({ ...state, quoteTags: selectedTags, customQuotes, resetCredential }))
+const cloudSnapshot = () => JSON.parse(JSON.stringify({ ...state, quoteTags: selectedTags, currentQuote, resetCredential }))
+const legacyQuoteFromCloud = (data: CloudRecord) => {
+  if (Array.isArray(data.savedQuotes)) {
+    const quotes = data.savedQuotes as { text?: string; savedAt?: number }[]
+    const quote = [...quotes].sort((left, right) => (right.savedAt ?? 0) - (left.savedAt ?? 0)).find((item) => item.text)?.text
+    if (quote) return quote
+  }
+  return Array.isArray(data.customQuotes) ? (data.customQuotes as string[]).at(-1) ?? null : null
+}
 const normalizeRemote = (data: CloudRecord) => JSON.parse(JSON.stringify({
   ...buildState(data),
   quoteTags: Array.isArray(data.quoteTags) ? data.quoteTags : selectedTags,
-  customQuotes: Array.isArray(data.customQuotes) ? data.customQuotes : customQuotes,
+  currentQuote: typeof data.currentQuote === 'string' ? data.currentQuote : legacyQuoteFromCloud(data),
   resetCredential: data.resetCredential ?? null,
 }))
 const hasMeaningfulProgress = () => state.xp > 0 || Object.keys(state.dailyLogs).length > 0 || Object.keys(state.attendanceDates).length > 0
 const syncStatusText: Record<SyncStatus, string> = {
-  local: 'Cloud backup is not set up. Progress is stored on this device only.',
-  syncing: 'Syncing…',
-  synced: 'All changes saved to the cloud',
-  offline: 'Offline. Changes will sync when you reconnect.',
-  error: 'Sync problem. Retrying automatically.',
+  local: 'Cloud required',
+  syncing: 'Syncing',
+  synced: 'Saved',
+  offline: 'Offline',
+  error: 'Sync error',
 }
 
 function setSyncStatus(next: SyncStatus) {
@@ -1268,8 +1305,10 @@ function adoptRemote(data: CloudRecord, uid: string) {
   resetCredential = credential?.salt && credential?.hash ? credential : null
   if (resetCredential) localStorage.setItem(RESET_CREDENTIAL_KEY, JSON.stringify(resetCredential))
   else localStorage.removeItem(RESET_CREDENTIAL_KEY)
+  currentQuote = typeof data.currentQuote === 'string' ? data.currentQuote : legacyQuoteFromCloud(data)
+  if (currentQuote) localStorage.setItem('level-up-current-quote', currentQuote)
+  else localStorage.removeItem('level-up-current-quote')
   if (Array.isArray(data.quoteTags)) { selectedTags = data.quoteTags as string[]; localStorage.setItem('level-up-quote-tags', JSON.stringify(selectedTags)) }
-  if (Array.isArray(data.customQuotes)) { customQuotes = data.customQuotes as string[]; localStorage.setItem('level-up-custom-quotes', JSON.stringify(customQuotes)) }
   localStorage.setItem('level-up-state', JSON.stringify(state))
   localStorage.setItem(OWNER_KEY, uid)
   isDirty = false
@@ -1287,6 +1326,8 @@ function handleRemoteProgress(data: CloudRecord | null, meta: { pending: boolean
     if (meta.fromCache) return
     if (owner && owner !== user.uid) {
       state = buildState({})
+      currentQuote = null
+      localStorage.removeItem('level-up-current-quote')
       resetCredential = null
       localStorage.removeItem(RESET_CREDENTIAL_KEY)
       changed = true
@@ -1355,17 +1396,24 @@ async function signOutAndClear() {
   stopProgressWatch = null
   await signOutUser()
   // The cloud copy is the source of truth, so nothing from this account stays on the device.
-  ;['level-up-state', OWNER_KEY, DIRTY_KEY, RESET_CREDENTIAL_KEY, 'level-up-quote-tags', 'level-up-custom-quotes'].forEach((key) => localStorage.removeItem(key))
+  ;['level-up-state', OWNER_KEY, DIRTY_KEY, RESET_CREDENTIAL_KEY, 'level-up-quote-tags', 'level-up-custom-quotes', 'level-up-saved-quotes', 'level-up-current-quote'].forEach((key) => localStorage.removeItem(key))
   state = buildState({})
   resetCredential = null
   selectedTags = ['exercise', 'motivational']
-  customQuotes = []
   isDirty = false
   activeTab = 'home'
   todayMode = 'choose'
   todayCompletionOpen = false
   currentQuote = null
   return true
+}
+
+function renderVisibilityToggle(targetId: string, description: string) {
+  return `<button class="password-visibility" type="button" data-password-target="${targetId}" data-visibility-label="${description}" aria-label="Show ${description}" aria-controls="${targetId}" aria-pressed="false" title="Show ${description}"><svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.7"/></svg><svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3l18 18M10.6 6.2A9.7 9.7 0 0 1 12 6c6.1 0 9.5 6 9.5 6a16 16 0 0 1-3 3.5M6.2 6.3C3.9 7.8 2.5 12 2.5 12s3.4 6 9.5 6c1 0 1.9-.2 2.7-.5"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>`
+}
+
+function renderSignOutConfirmation() {
+  return `<div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="sign-out-dialog-title"><div class="confirmation-backdrop" id="cancel-sign-out"></div><section class="confirmation-panel"><p class="kicker">ACCOUNT</p><h2 id="sign-out-dialog-title">Sign out?</h2><p>Your progress stays saved to your cloud account. Any pending changes will be uploaded before signing out.</p><div class="confirmation-actions"><button class="small-button secondary-button" id="cancel-sign-out" type="button">CANCEL</button><button class="small-button account-signout" id="confirm-sign-out" type="button">SIGN OUT</button></div></section></div>`
 }
 
 function renderAuthGate() {
@@ -1385,18 +1433,35 @@ function renderAuthGate() {
       <p class="auth-hint">Your progress is saved to your account, so you can continue on any device.</p>
       <form id="auth-form" novalidate>
         <label class="auth-field"><span>EMAIL</span><input id="auth-email" type="email" inputmode="email" autocomplete="email" value="${escapeHtml(authEmail)}" ${disabled}></label>
-        <label class="auth-field"><span>PASSWORD</span><input id="auth-password" type="password" autocomplete="${isSignUp ? 'new-password' : 'current-password'}" placeholder="${isSignUp ? 'At least 6 characters' : ''}" ${disabled}></label>
-        ${isSignUp ? '<p class="auth-hint auth-reset-code-note">Choose a six-digit reset code. It will be used only as an extra confirmation before permanently erasing your progress. It is not your sign-in or account recovery code.</p><label class="auth-field"><span>RESET CODE</span><input id="auth-reset-code" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 digits" ' + disabled + '></label><label class="auth-field"><span>CONFIRM RESET CODE</span><input id="auth-reset-code-confirm" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Enter it again" ' + disabled + '></label>' : ''}
+        <label class="auth-field"><span>PASSWORD</span><div class="auth-password-control"><input id="auth-password" type="password" autocomplete="${isSignUp ? 'new-password' : 'current-password'}" placeholder="${isSignUp ? 'At least 6 characters' : ''}" ${disabled}>${renderVisibilityToggle('auth-password', 'password')}</div></label>
+        ${isSignUp ? `<p class="auth-hint auth-reset-code-note">Choose a six-digit reset code. It will be used only as an extra confirmation before permanently erasing your progress. It is not your sign-in or account recovery code.</p><label class="auth-field"><span>RESET CODE</span><div class="auth-password-control"><input id="auth-reset-code" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 digits" ${disabled}>${renderVisibilityToggle('auth-reset-code', 'reset code')}</div></label><label class="auth-field"><span>CONFIRM RESET CODE</span><div class="auth-password-control"><input id="auth-reset-code-confirm" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Enter it again" ${disabled}>${renderVisibilityToggle('auth-reset-code-confirm', 'confirmation code')}</div></label>` : ''}
         ${authMessage ? `<p class="auth-message ${authMessageKind}" role="alert">${escapeHtml(authMessage)}</p>` : ''}
         <button class="small-button auth-submit" type="submit" ${disabled}>${authBusy ? 'PLEASE WAIT…' : isSignUp ? 'CREATE ACCOUNT' : 'SIGN IN'}</button>
       </form>
       <div class="auth-links"><button type="button" id="auth-toggle">${isSignUp ? 'I already have an account' : 'Create an account'}</button>${isSignUp ? '' : '<button type="button" id="auth-reset">Forgot password?</button>'}</div>`
   }
-  document.querySelector<HTMLDivElement>('#app')!.innerHTML = `<div class="app-shell auth-shell"><main class="auth-main"><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><section class="auth-card">${body}</section></main></div>`
+  document.querySelector<HTMLDivElement>('#app')!.innerHTML = `<div class="app-shell auth-shell"><main class="auth-main"><div class="auth-scene" aria-hidden="true"><video class="app-video auth-background-video" autoplay muted loop playsinline preload="auto"><source src="${authBackgroundVideo}" type="video/mp4"></video><span class="auth-video-overlay"></span><span class="auth-portal"></span><span class="auth-shadow"><i></i><i></i></span><span class="auth-particle auth-particle-a"></span><span class="auth-particle auth-particle-b"></span><span class="auth-particle auth-particle-c"></span><span class="auth-floor"></span></div><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><section class="auth-card">${body}</section>${signOutConfirmationOpen ? renderSignOutConfirmation() : ''}</main></div>`
+  const backgroundVideo = document.querySelector<HTMLVideoElement>('.auth-background-video')
+  const revealBackground = () => backgroundVideo?.classList.add('is-ready')
+  backgroundVideo?.addEventListener('canplay', revealBackground, { once: true })
+  if (backgroundVideo && backgroundVideo.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) revealBackground()
 
   const emailInput = document.querySelector<HTMLInputElement>('#auth-email')
   emailInput?.addEventListener('input', () => { authEmail = emailInput.value })
-  document.querySelector('#auth-signout')?.addEventListener('click', () => { void signOutAndClear() })
+  wirePasswordVisibility()
+  document.querySelector('#auth-signout')?.addEventListener('click', () => {
+    signOutConfirmationOpen = true
+    renderAuthGate()
+  })
+  document.querySelectorAll<HTMLElement>('#cancel-sign-out').forEach((element) => element.addEventListener('click', () => {
+    signOutConfirmationOpen = false
+    renderAuthGate()
+  }))
+  document.querySelector('#confirm-sign-out')?.addEventListener('click', async () => {
+    signOutConfirmationOpen = false
+    const signedOut = await signOutAndClear()
+    if (!signedOut) renderAuthGate()
+  })
   document.querySelector('#auth-toggle')?.addEventListener('click', () => {
     authMode = authMode === 'signin' ? 'signup' : 'signin'
     authMessage = ''
@@ -1473,7 +1538,7 @@ function renderAuthGate() {
 }
 
 // Legacy saves have no per-day XP, so estimate it once from logged exercises and check-ins.
-if (needsXpBackfill || needsBreakdownBackfill) {
+if (cloudEnabled && (needsXpBackfill || needsBreakdownBackfill)) {
   const recordSource = (dateKey: string, source: string, amount: number) => {
     state.xpBreakdown[dateKey] = { ...(state.xpBreakdown[dateKey] ?? {}), [source]: roundXp(amount) }
   }
@@ -1490,7 +1555,5 @@ if (needsXpBackfill || needsBreakdownBackfill) {
 }
 if (cloudEnabled) {
   startCloudSync()
-} else {
-  applyMissedDayPenalties()
 }
 render()
