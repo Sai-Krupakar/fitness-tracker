@@ -312,6 +312,7 @@ let activeTab: Tab = 'home'
 let tagDropdownOpen = false
 let quoteLoading = false
 let customQuoteFormOpen = false
+let trainingBackgroundVideo: HTMLVideoElement | null = null
 let customExerciseFormOpen = false
 let resetConfirmationOpen = false
 let signOutConfirmationOpen = false
@@ -385,6 +386,26 @@ function exerciseVisual(kind: string, label: string, exerciseName: string) {
   return `<div class="exercise-tile ${kind} ${motion}"><svg class="exercise-art" viewBox="${viewBox}" aria-hidden="true" focusable="false">${exerciseFigureMarkup(motion)}</svg><span class="exercise-label">${label}</span></div>`
 }
 
+function renderQuotePanel() {
+  let quoteMarkup = ''
+  if (quoteLoading) quoteMarkup = '<p class="quote">Loading today’s quote…</p>'
+  if (!quoteLoading && currentQuote) quoteMarkup = `<p class="quote">“${escapeHtml(currentQuote)}”</p>`
+  return `
+    <section class="hero-panel today-quote-panel">
+      ${quoteMarkup}
+      <details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details>
+      <div class="quote-actions">
+        <button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>
+        <button class="small-button custom-quote-button" id="add-custom-quote" type="button">ADD OWN QUOTE</button>
+      </div>
+      ${customQuoteFormOpen ? `<div class="custom-quote-form" id="custom-quote-form"><textarea id="custom-quote-text" maxlength="240" placeholder="Write your own quote" aria-label="Your own quote"></textarea><div class="custom-quote-actions"><button class="small-button secondary-button" id="cancel-custom-quote" type="button">CANCEL</button><button class="small-button" id="save-custom-quote" type="button">SAVE QUOTE</button></div></div>` : ''}
+    </section>`
+}
+
+function renderCurrentQuote() {
+  return currentQuote ? `<p class="today-current-quote">“${escapeHtml(currentQuote)}”</p>` : ''
+}
+
 function renderHomeTab(level: ReturnType<typeof current>) {
   const progress = getLevelProgress()
   const progressWidth = `${Math.max(0, Math.min(progress.percent, 100))}%`
@@ -407,22 +428,12 @@ function renderHomeTab(level: ReturnType<typeof current>) {
     <div class="xp-rule"><span>Training attendance : </span><strong>+${XP_CONFIG.exercise.trainingAttendanceBonus} XP</strong></div>
     <div class="xp-rule"><span>Recovery attendance : </span><strong>+${XP_CONFIG.exercise.recoveryAttendanceBonus} XP</strong></div>
     <div class="xp-rule xp-rule-penalty"><span>Missed day : </span><strong>-${XP_CONFIG.exercise.missPenalty} XP</strong></div>`
-  let quoteMarkup = ''
-  if (quoteLoading) quoteMarkup = '<p class="quote">Loading today’s quote…</p>'
-  if (!quoteLoading && currentQuote) quoteMarkup = `<p class="quote">“${escapeHtml(currentQuote)}”</p>`
   return `
     <section class="hero-panel">
       <div class="hero-glow hero-glow-a"></div>
       <div class="hero-glow hero-glow-b"></div>
       <div class="dungeon-scene" aria-hidden="true"><span class="portal-ring"></span><span class="hunter-silhouette"><i></i><i></i></span><span class="shadow-particle particle-one"></span><span class="shadow-particle particle-two"></span><span class="shadow-particle particle-three"></span></div>
       <div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div>
-      ${quoteMarkup}
-      <details class="tag-dropdown" id="quote-tags" ${tagDropdownOpen ? 'open' : ''}><summary>Quote topics · ${selectedTags.length} selected</summary><div class="tag-options">${TAG_OPTIONS.map((tag) => `<label class="tag-option"><input type="checkbox" data-tag="${tag.id}" ${selectedTags.includes(tag.id) ? 'checked' : ''}> ${tag.label}</label>`).join('')}</div></details>
-      <div class="quote-actions">
-        <button class="small-button generate-quote-button" id="generate-quote" ${quoteLoading ? 'disabled' : ''}>${quoteLoading ? 'GENERATING…' : 'GENERATE QUOTE'} <span>↻</span></button>
-        <button class="small-button custom-quote-button" id="add-custom-quote" type="button">ADD OWN QUOTE</button>
-      </div>
-      ${customQuoteFormOpen ? `<div class="custom-quote-form" id="custom-quote-form"><textarea id="custom-quote-text" maxlength="240" placeholder="Write your own quote" aria-label="Your own quote"></textarea><div class="custom-quote-actions"><button class="small-button secondary-button" id="cancel-custom-quote" type="button">CANCEL</button><button class="small-button" id="save-custom-quote" type="button">SAVE QUOTE</button></div></div>` : ''}
       <div class="hero-content">
         <div class="hero-details">
           <div class="hero-copy">
@@ -537,12 +548,8 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
 
   if (todayMode === 'choose') {
     return `
+      ${renderQuotePanel()}
       <section class="today-mode-picker" aria-label="Choose today's plan">
-        <div class="today-choice-visual">
-          <video class="app-video" autoplay muted loop playsinline preload="auto" aria-label="A calm view for today's plan">
-            <source src="${oldMoneyOutfitVideo}" type="video/mp4">
-          </video>
-        </div>
         <div class="today-mode-options">
           <button class="today-mode-option training-option" data-today-mode="training" type="button"><b>TRAINING DAY</b><span>Run, push-ups, and your exercise log</span></button>
           <button class="today-mode-option recovery-option" data-today-mode="recovery" type="button"><b>RECOVERY DAY</b><span>Easy movement, a view, and a reset</span></button>
@@ -561,6 +568,7 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
 
   if (todayMode === 'recovery') {
     return `
+      ${renderCurrentQuote()}
       <section class="today-mode-layout">
         <div class="today-log-details">
           <div class="today-mode-toolbar"><p class="kicker">RECOVERY DAY</p><div class="today-mode-actions">${attendanceButtonMarkup}${changeDayTypeButton}</div></div>
@@ -579,11 +587,22 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
   }
 
   return `
-    <section class="today-mode-layout">
+    ${renderCurrentQuote()}
+    <section class="today-mode-layout today-training-layout">
       <div class="today-log-details">
         <div class="today-mode-toolbar"><p class="kicker">TRAINING DAY</p><div class="today-mode-actions">${attendanceButtonMarkup}${changeDayTypeButton}</div></div>
         <section class="section-heading"><div><p class="kicker">${todayLabel.toUpperCase()}</p><h2>Log your training</h2></div><span class="day-chip">${Object.keys(log).length} EXERCISES</span></section>
-        <section class="mission-card"><div class="checklist">${exerciseList}${customFormMarkup}<button class="small-button add-custom-exercise" id="add-custom-exercise" type="button" ${attendanceForToday ? '' : 'disabled'}>ADD EXERCISE</button></div></section>
+      </div>
+      <div class="today-training-content">
+        <div class="today-training-background" aria-hidden="true">
+          <video class="app-video" autoplay muted loop playsinline preload="auto">
+            <source src="${oldMoneyOutfitVideo}" type="video/mp4">
+          </video>
+        </div>
+        <section class="mission-card"><div class="checklist">${exerciseList}${customFormMarkup}</div></section>
+      </div>
+      <div class="today-training-actions">
+        <button class="small-button add-custom-exercise" id="add-custom-exercise" type="button" ${attendanceForToday ? '' : 'disabled'}>ADD EXERCISE</button>
         ${completeTodayButton}
       </div>
     </section>
@@ -800,6 +819,9 @@ function render() {
 
   const navItem = (tab: Tab, icon: string, label: string) => `<a class="${activeTab === tab ? 'active' : ''}" data-tab="${tab}" href="#${tab}"><span>${icon}</span>${label}</a>`
 
+  const currentTrainingVideo = document.querySelector<HTMLVideoElement>('.today-training-background video')
+  if (currentTrainingVideo) trainingBackgroundVideo = currentTrainingVideo
+
   document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div class="app-shell">
       <header class="topbar"><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><div class="header-status"><span class="status-dot"></span> ${todayLabel}</div><button class="icon-button" id="profile" aria-label="Open profile">◎</button></header>
@@ -842,12 +864,32 @@ function render() {
       </div>` : ''}
     </div>`
 
+  const trainingVideoSlot = document.querySelector<HTMLVideoElement>('.today-training-background video')
+  if (trainingVideoSlot && trainingBackgroundVideo && trainingVideoSlot !== trainingBackgroundVideo) {
+    trainingVideoSlot.replaceWith(trainingBackgroundVideo)
+  } else if (trainingVideoSlot) {
+    trainingBackgroundVideo = trainingVideoSlot
+  }
   wirePasswordVisibility()
   document.querySelectorAll<HTMLVideoElement>('video.app-video').forEach((video) => {
     const revealVideo = () => video.classList.add('is-ready')
+    if (video.matches('.today-training-background video')) {
+      video.onplaying = () => {
+        revealVideo()
+        video.closest('.today-training-background')?.classList.add('is-playing')
+      }
+      if (!video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        revealVideo()
+        video.closest('.today-training-background')?.classList.add('is-playing')
+      }
+      return
+    }
     video.addEventListener('canplay', revealVideo, { once: true })
     if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) revealVideo()
   })
+  if (activeTab === 'today' && todayMode === 'training' && trainingBackgroundVideo?.paused) {
+    trainingBackgroundVideo.play().catch((error: unknown) => console.error('Training background video failed to resume', error))
+  }
 
   const showToast = (message: string) => { const toast = document.querySelector<HTMLDivElement>('#toast'); if (!toast) { return }; toast.textContent = message; toast.classList.add('visible'); window.setTimeout(() => toast.classList.remove('visible'), 2200) }
   document.querySelectorAll<HTMLButtonElement>('.add-exercise').forEach((button) => button.addEventListener('click', () => {
