@@ -36,7 +36,7 @@ const XP_CONFIG = {
     custom: 0.1,
     trainingAttendanceBonus: 1,
     recoveryAttendanceBonus: 2,
-    missPenalty: 5,
+    missPenalty: 2,
   },
 } as const
 
