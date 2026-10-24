@@ -7,7 +7,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth'
-import { doc, initializeFirestore, onSnapshot, persistentLocalCache, serverTimestamp, setDoc } from 'firebase/firestore'
+import { deleteDoc, doc, getDoc, initializeFirestore, onSnapshot, persistentLocalCache, serverTimestamp, setDoc } from 'firebase/firestore'
+import type { RecordedRun } from './run-tracker'
 
 export type CloudUser = { uid: string; email: string | null }
 export type CloudRecord = Record<string, unknown>
@@ -52,6 +53,13 @@ export const watchProgress = (
 
 // A full replace (no merge) so deleted exercises and days disappear from the cloud copy too.
 export const saveProgress = (uid: string, data: CloudRecord) => setDoc(doc(requireDb(), 'users', uid), { ...data, updatedAt: serverTimestamp() })
+
+export const saveRunRoute = (uid: string, run: RecordedRun) => setDoc(doc(requireDb(), 'users', uid, 'runs', run.id), run)
+export const deleteRunRoute = (uid: string, id: string) => deleteDoc(doc(requireDb(), 'users', uid, 'runs', id))
+export const loadRunRoute = async (uid: string, id: string): Promise<RecordedRun | null> => {
+  const snapshot = await getDoc(doc(requireDb(), 'users', uid, 'runs', id))
+  return snapshot.exists() ? snapshot.data() as RecordedRun : null
+}
 
 export const describeAuthError = (error: unknown) => {
   const code = (error as { code?: string } | null)?.code ?? ''

@@ -1,8 +1,10 @@
 import './style.css'
-import { cloudEnabled, describeAuthError, saveProgress, sendReset, signInWithEmail, signOutUser, signUpWithEmail, watchProgress, watchUser, type CloudRecord, type CloudUser } from './cloud'
+import { mountPageVideos, retainPageVideos } from './video-playback'
+import { cloudEnabled, deleteRunRoute, describeAuthError, saveProgress, sendReset, signInWithEmail, signOutUser, signUpWithEmail, watchProgress, watchUser, type CloudRecord, type CloudUser } from './cloud'
+import { clearRecordedRuns, connectRunTracker, disconnectRunTracker, hasActiveRun, isSavedRun, mountRunTracker, type RunSummary } from './run-tracker'
+import { createIcons, Play, ArrowLeft } from 'lucide'
 import mountainTownVideo from './assets/From Klickpin.com- Cultural mountain town stories for people who love beauty for creative people to pin for future adve-pin-id-907686499886846221.mp4'
 import patternStorageVideo from './assets/From Klickpin.com- Practical pattern storage tips with charm and useful ideas this season for stylish handmade days-pin-id-921267667539985906.mp4'
-import oldMoneyOutfitVideo from './assets/From Klickpin.com- Chic old money outfit ideas that make everyday moments look more intentional memorable and beautifully styled for busy people w.mp4'
 import travelPackingVideo from './assets/From Klickpin.com- Pin these 28 Practical travel packing tips that are worth saving if you love elegant details and creative inspiration for begin.mp4'
 import summerOutfitVideo from './assets/From Klickpin.com- Try Simple summer outfit ideas that can instantly upgrade your look room party or daily routine for your next inspiration board.mp4'
 import authBackgroundVideo from './assets/From Klickpin.com- Creative hemming tricks and clever inspiration for simple living to pin for your next project-pin-id-734790495486499121.mp4'
@@ -24,9 +26,11 @@ type TrainingState = {
   customExercises: ExerciseEntry[];
   customChallenges: Challenge[];
   savedChallenges: Challenge[];
+  runs: RunSummary[];
+  runHistoryResetAt: number;
   lastAttendanceCheckDate?: string;
 }
-type Tab = 'home' | 'today' | 'progress' | 'missions' | 'profile'
+type Tab = 'home' | 'today' | 'progress' | 'missions' | 'profile' | 'run'
 
 const XP_CONFIG = {
   levelThresholds: [0, 333, 778, 1444, 2333, 3333, 4555, 5999, 7777],
@@ -87,6 +91,8 @@ const buildState = (oldState: Record<string, any>): TrainingState => ({
   })),
   customChallenges: oldState.customChallenges ?? [],
   savedChallenges: oldState.savedChallenges ?? [...baseChallenges, ...(oldState.customChallenges ?? [])],
+  runs: (Array.isArray(oldState.runs) ? oldState.runs : []).filter((run: RunSummary) => isSavedRun(run) && run.startedAt > (oldState.runHistoryResetAt ?? 0)),
+  runHistoryResetAt: oldState.runHistoryResetAt ?? 0,
   lastAttendanceCheckDate: oldState.lastAttendanceCheckDate ?? oldState.lastDecayDate,
 })
 let state = buildState(oldState)
@@ -140,10 +146,10 @@ async function verifyResetCode(code: string, credential: ResetCredential) {
 }
 const needsXpBackfill = !oldState.xpHistory
 const needsBreakdownBackfill = !oldState.xpBreakdown
-const roundXp = (value: number) => Math.round(value * 10) / 10
+const roundXp = (value: number) => Math.round(value * 10000) / 10000
 const addXp = (dateKey: string, amount: number, source: string) => {
   const before = state.xp
-  state.xp = Math.max(0, state.xp + amount)
+  state.xp = roundXp(Math.max(0, state.xp + amount))
   const applied = state.xp - before
   state.xpHistory[dateKey] = roundXp((state.xpHistory[dateKey] ?? 0) + applied)
   const day = state.xpBreakdown[dateKey] ?? {}
@@ -242,7 +248,18 @@ const getLevelProgress = () => {
     percent: Math.min((currentProgress / totalProgress) * 100, 100),
   }
 }
+const restoreRunXpRemainders = () => {
+  for (const [dateKey, log] of Object.entries(state.dailyLogs)) {
+    if (!Number.isFinite(log.run) || log.run <= 0) continue
+    const expected = roundXp(log.run * XP_CONFIG.exercise.run)
+    const credited = state.xpBreakdown[dateKey]?.['exercise:run'] ?? 0
+    const missing = roundXp(expected - credited)
+    if (missing > 0) addXp(dateKey, missing, 'exercise:run')
+  }
+  syncLevelFromXp()
+}
 const applyMissedDayPenalties = () => {
+  restoreRunXpRemainders()
   const yesterday = new Date()
   yesterday.setDate(yesterday.getDate() - 1)
   const throughDate = localDateKey(yesterday)
@@ -268,6 +285,24 @@ const baseExercises = [
   { id: 'run', label: 'Run', icon: 'run' },
   { id: 'push', label: 'Push-ups', icon: 'pushup' },
 ] as const
+const recordTrackedRun = (run: RunSummary) => {
+  if (!isSavedRun(run) || run.startedAt <= state.runHistoryResetAt) return false
+  if (state.runs.some((saved) => saved.id === run.id)) return false
+  const summary: RunSummary = { id: run.id, startedAt: run.startedAt, finishedAt: run.finishedAt, elapsedMs: run.elapsedMs, distanceM: run.distanceM }
+  state.runs.push(summary)
+  const kilometres = Math.round(run.distanceM) / 1000
+  if (kilometres > 0) {
+    const date = localDateKey(new Date(run.finishedAt))
+    recordTrainingDay(date)
+    state.dailyLogs[date] = { ...state.dailyLogs[date], run: Math.round(((state.dailyLogs[date]?.run ?? 0) + kilometres) * 1000) / 1000 }
+    state.exerciseTotals.run = Math.round(((state.exerciseTotals.run ?? 0) + kilometres) * 1000) / 1000
+    addXp(date, roundXp(kilometres * XP_CONFIG.exercise.run), 'exercise:run')
+    state.xp = roundXp(state.xp)
+    syncLevelFromXp()
+  }
+  save()
+  return true
+}
 const exercises = () => [
   ...baseExercises.map((exercise) => ({ ...exercise })),
   ...state.customExercises.map((exercise) => ({ ...exercise, icon: 'custom' }))
@@ -312,7 +347,6 @@ let activeTab: Tab = 'home'
 let tagDropdownOpen = false
 let quoteLoading = false
 let customQuoteFormOpen = false
-let trainingBackgroundVideo: HTMLVideoElement | null = null
 let customExerciseFormOpen = false
 let resetConfirmationOpen = false
 let signOutConfirmationOpen = false
@@ -484,7 +518,10 @@ function renderProgressTab(ladderRows: string) {
 }
 
 function renderTodayTab(log: Record<string, number>, todayLabel: string) {
+  const formatKilometres = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 })
   const attendanceForToday = state.attendanceDates[todayKey()]
+  const latestRun = state.runs.filter((run) => localDateKey(new Date(run.finishedAt)) === todayKey())
+    .sort((left, right) => right.finishedAt - left.finishedAt).at(0)
   if (attendanceForToday) todayMode = attendanceForToday
   const hasLoggedTrainingToday = Object.values(log).some((quantity) => quantity > 0)
   const changeDayTypeButton = attendanceForToday
@@ -494,24 +531,34 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
     const isCustom = !baseExercises.some((baseExercise) => baseExercise.id === exercise.id)
     const loggedQuantity = log[exercise.id]
     const isLoggedToday = loggedQuantity !== undefined
-    const exerciseDetail = isLoggedToday
+    const manualExerciseDetail = isLoggedToday
       ? `<small><span>All-time total: ${state.exerciseTotals[exercise.id] ?? 0}</span><span>Logged today: ${loggedQuantity}</span><span>Available tomorrow</span></small>`
       : `<small><span>All-time total: ${state.exerciseTotals[exercise.id] ?? 0}</span><span>${getExerciseXpLabel(exercise.id)}</span></small>`
+    const exerciseDetail = exercise.id === 'run'
+      ? `<small><span>All-time total: ${formatKilometres(state.exerciseTotals.run ?? 0)} km</span><span>Today's total: ${formatKilometres(log.run ?? 0)} km</span>${latestRun ? `<span>Last run: ${formatKilometres(latestRun.distanceM / 1000)} km</span>` : ''}${isLoggedToday ? '' : `<span>${getExerciseXpLabel('run')}</span>`}</small>`
+      : manualExerciseDetail
+    const quantityValue = isLoggedToday ? loggedQuantity : ''
     const deleteButton = isCustom
       ? `<button class="small-button delete-custom-exercise" data-exercise="${exercise.id}" type="button">DELETE</button>`
       : ''
+    const runButton = exercise.id === 'run'
+      ? `<button class="small-button start-run-button" id="open-run-recorder" type="button" ${attendanceForToday === 'training' ? '' : 'disabled'}><i data-lucide="play"></i>${hasActiveRun() ? 'RETURN TO RUN' : 'START RUN'}</button>`
+      : ''
 
     return `
-      <div class="log-item ${isLoggedToday ? 'logged-today' : ''}">
+      <div class="log-item ${exercise.id === 'run' ? 'run-log-item' : ''} ${isLoggedToday ? 'logged-today' : ''}">
         <div class="log-summary">
           <span class="check-figure ${exercise.icon}">${exerciseVisual(exercise.icon, '', exercise.label)}</span>
-          <span class="check-copy"><b>${exercise.label}</b>${exerciseDetail}</span>
+          <span class="check-copy"><b>${exercise.label}</b></span>
         </div>
-        <div class="log-actions">
-          <input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" value="${isLoggedToday ? loggedQuantity : ''}" placeholder="0" aria-label="${exercise.label} count" ${isLoggedToday || !attendanceForToday ? 'disabled' : ''}>
+        <div class="log-actions ${exercise.id === 'run' ? 'run-log-actions' : ''}">
+          <input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" step="${exercise.id === 'run' ? '0.001' : '1'}" inputmode="${exercise.id === 'run' ? 'decimal' : 'numeric'}" value="${quantityValue}" placeholder="0" aria-label="${exercise.label} ${exercise.id === 'run' ? 'kilometres' : 'count'}" ${isLoggedToday || !attendanceForToday ? 'disabled' : ''}>
+          ${exercise.id === 'run' ? '<span class="quantity-unit" aria-hidden="true">km</span>' : ''}
           <button class="small-button add-exercise" data-exercise="${exercise.id}" type="button" ${isLoggedToday || !attendanceForToday ? 'disabled' : ''}>${isLoggedToday ? 'LOGGED' : 'ADD'}</button>
           ${deleteButton}
         </div>
+        <div class="log-statistics">${exerciseDetail}</div>
+        ${runButton}
       </div>
     `
   }).join('')
@@ -594,11 +641,6 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
         <section class="section-heading"><div><p class="kicker">${todayLabel.toUpperCase()}</p><h2>Log your training</h2></div><span class="day-chip">${Object.keys(log).length} EXERCISES</span></section>
       </div>
       <div class="today-training-content">
-        <div class="today-training-background" aria-hidden="true">
-          <video class="app-video" autoplay muted loop playsinline preload="auto">
-            <source src="${oldMoneyOutfitVideo}" type="video/mp4">
-          </video>
-        </div>
         <section class="mission-card"><div class="checklist">${exerciseList}${customFormMarkup}</div></section>
       </div>
       <div class="today-training-actions">
@@ -644,7 +686,7 @@ function renderChallengesTab() {
     <section class="challenge-result ${challenge.className}"><p class="kicker">YOUR CHALLENGE</p><h3>${escapeHtml(challenge.name)}</h3><p>${escapeHtml(challenge.detail)}</p><div class="challenge-footer"><span>REWARD <b>+${challenge.reward} XP</b></span><button class="small-button" id="challenge-button" type="button" ${state.challengeDone ? 'disabled' : ''}>${state.challengeDone ? 'COMPLETED' : 'COMPLETE'} <span>↗</span></button></div>${customFormMarkup}<button class="small-button add-custom-challenge" id="add-custom-challenge" type="button">ADD CHALLENGE</button>${challengeManagementMarkup}</section>`
 }
 
-const formatXp = (value: number) => `${Math.round(value * 10) / 10}`
+const formatXp = (value: number) => `${roundXp(value)}`
 const renderXpChart = () => {
   const days = Array.from({ length: xpChartRange }, (_, index) => {
     const date = new Date()
@@ -789,16 +831,25 @@ function wirePasswordVisibility() {
 }
 
 function renderCloudSetupGate() {
+  retainPageVideos()
   document.querySelector<HTMLDivElement>('#app')!.innerHTML = `<div class="app-shell auth-shell"><main class="auth-main"><div class="auth-scene" aria-hidden="true"><video class="app-video auth-background-video" autoplay muted loop playsinline preload="auto"><source src="${authBackgroundVideo}" type="video/mp4"></video><span class="auth-video-overlay"></span><span class="auth-portal"></span><span class="auth-shadow"><i></i><i></i></span><span class="auth-particle auth-particle-a"></span><span class="auth-particle auth-particle-b"></span><span class="auth-particle auth-particle-c"></span><span class="auth-floor"></span></div><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><section class="auth-card"><p class="kicker">CLOUD REQUIRED</p><h2>Cloud sync is not configured</h2><p class="auth-hint">This app requires a Firebase account to store your progress. Add all four Firebase web app values to <code>.env</code>, then restart the dev server or rebuild the Android app.</p></section></main></div>`
-  const backgroundVideo = document.querySelector<HTMLVideoElement>('.auth-background-video')
-  const revealBackground = () => backgroundVideo?.classList.add('is-ready')
-  backgroundVideo?.addEventListener('canplay', revealBackground, { once: true })
-  if (backgroundVideo && backgroundVideo.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) revealBackground()
+  mountPageVideos()
 }
 
 function render() {
-  if (!cloudEnabled) { renderCloudSetupGate(); return }
-  if (cloudEnabled && (!authReady || !currentUser || awaitingFirstSync)) { renderAuthGate(); return }
+  if (!cloudEnabled) { disconnectRunTracker(); renderCloudSetupGate(); return }
+  if (cloudEnabled && (!authReady || !currentUser || awaitingFirstSync)) { disconnectRunTracker(); renderAuthGate(); return }
+  connectRunTracker(currentUser!.uid, {
+    summaries: () => state.runs,
+    record: recordTrackedRun,
+    changed: render,
+    resetAt: () => state.runHistoryResetAt,
+    finished: (run, message) => {
+      if (activeTab !== 'run') return
+      if (run?.discarded) showToast('No movement recorded. Run was not saved.')
+      else if (message) showToast(message)
+    },
+  })
   const level = current()
   const log = todayLog()
   const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
@@ -816,11 +867,11 @@ function render() {
   if (activeTab === 'progress') tabContent = renderProgressTab(ladderRows)
   if (activeTab === 'missions') tabContent = renderChallengesTab()
   if (activeTab === 'profile') tabContent = renderProfileTab(level)
+  if (activeTab === 'run') tabContent = `<section class="run-recording-page"><button class="small-button secondary-button run-page-back" id="close-run-recorder" type="button"><i data-lucide="arrow-left"></i>TRAINING DAY</button><section class="run-tracker" id="run-tracker" aria-label="GPS run recorder"></section></section>`
 
-  const navItem = (tab: Tab, icon: string, label: string) => `<a class="${activeTab === tab ? 'active' : ''}" data-tab="${tab}" href="#${tab}"><span>${icon}</span>${label}</a>`
+  const navItem = (tab: Tab, icon: string, label: string) => `<a class="${activeTab === tab || (tab === 'today' && activeTab === 'run') ? 'active' : ''}" data-tab="${tab}" href="#${tab}"><span>${icon}</span>${label}</a>`
 
-  const currentTrainingVideo = document.querySelector<HTMLVideoElement>('.today-training-background video')
-  if (currentTrainingVideo) trainingBackgroundVideo = currentTrainingVideo
+  const retainedVideos = retainPageVideos()
 
   document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div class="app-shell">
@@ -864,32 +915,25 @@ function render() {
       </div>` : ''}
     </div>`
 
-  const trainingVideoSlot = document.querySelector<HTMLVideoElement>('.today-training-background video')
-  if (trainingVideoSlot && trainingBackgroundVideo && trainingVideoSlot !== trainingBackgroundVideo) {
-    trainingVideoSlot.replaceWith(trainingBackgroundVideo)
-  } else if (trainingVideoSlot) {
-    trainingBackgroundVideo = trainingVideoSlot
+  mountRunTracker()
+  for (const selector of ['#open-run-recorder', '#close-run-recorder']) {
+    const button = document.querySelector<HTMLElement>(selector)
+    if (button) createIcons({ icons: { Play, ArrowLeft }, root: button })
   }
-  wirePasswordVisibility()
-  document.querySelectorAll<HTMLVideoElement>('video.app-video').forEach((video) => {
-    const revealVideo = () => video.classList.add('is-ready')
-    if (video.matches('.today-training-background video')) {
-      video.onplaying = () => {
-        revealVideo()
-        video.closest('.today-training-background')?.classList.add('is-playing')
-      }
-      if (!video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        revealVideo()
-        video.closest('.today-training-background')?.classList.add('is-playing')
-      }
-      return
-    }
-    video.addEventListener('canplay', revealVideo, { once: true })
-    if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) revealVideo()
+  document.querySelector('#open-run-recorder')?.addEventListener('click', () => {
+    if (state.attendanceDates[todayKey()] !== 'training') return
+    activeTab = 'run'
+    render()
+    window.scrollTo(0, 0)
   })
-  if (activeTab === 'today' && todayMode === 'training' && trainingBackgroundVideo?.paused) {
-    trainingBackgroundVideo.play().catch((error: unknown) => console.error('Training background video failed to resume', error))
-  }
+  document.querySelector('#close-run-recorder')?.addEventListener('click', () => {
+    activeTab = 'today'
+    todayMode = 'training'
+    todayCompletionOpen = false
+    render()
+  })
+  mountPageVideos(retainedVideos)
+  wirePasswordVisibility()
 
   const showToast = (message: string) => { const toast = document.querySelector<HTMLDivElement>('#toast'); if (!toast) { return }; toast.textContent = message; toast.classList.add('visible'); window.setTimeout(() => toast.classList.remove('visible'), 2200) }
   document.querySelectorAll<HTMLButtonElement>('.add-exercise').forEach((button) => button.addEventListener('click', () => {
@@ -900,8 +944,9 @@ function render() {
     const date = todayKey()
     const dayLog = state.dailyLogs[date] ?? {}
     if (dayLog[id] !== undefined) { showToast('This exercise is already logged for today'); return }
+    const enteredCount = id === 'run' ? Math.round(quantity * 1000) / 1000 : Math.floor(quantity)
+    if (enteredCount <= 0) { showToast('Enter at least one rep or 0.001 km'); return }
     recordTrainingDay(date)
-    const enteredCount = Math.floor(quantity)
     dayLog[id] = enteredCount
     state.dailyLogs[date] = dayLog
     state.exerciseTotals[id] = (state.exerciseTotals[id] ?? 0) + enteredCount
@@ -909,7 +954,7 @@ function render() {
     const xpText = id === 'run' ? `${enteredCount} km` : `${enteredCount} reps`
     addXp(date, xpGain, `exercise:${id}`)
     syncLevelFromXp()
-    save(); render(); showToast(`${xpText} logged · +${xpGain.toFixed(1)} XP`)
+    save(); render(); showToast(`${xpText} logged · +${formatXp(xpGain)} XP`)
   }))
   document.querySelectorAll<HTMLButtonElement>('.today-mode-option').forEach((button) => button.addEventListener('click', () => {
     const mode = button.dataset.todayMode
@@ -1168,6 +1213,7 @@ function render() {
   })
   document.querySelector('#profile')?.addEventListener('click', () => { activeTab = 'profile'; render() })
   document.querySelector('#sign-out')?.addEventListener('click', () => {
+    if (hasActiveRun()) { showToast('Finish and save your run before signing out'); return }
     signOutConfirmationOpen = true
     render()
   })
@@ -1236,12 +1282,21 @@ function render() {
     resetCodeBusy = false
     render()
   })
-  document.querySelector('#confirm-reset')?.addEventListener('click', () => {
+  document.querySelector('#confirm-reset')?.addEventListener('click', async () => {
     if (resetCodeStep !== 'confirm') return
+    if (hasActiveRun()) { showToast('Finish your active run before resetting progress'); return }
+    const runHistoryResetAt = Date.now()
+    try { await clearRecordedRuns(runHistoryResetAt) } catch (error) { showToast(error instanceof Error ? error.message : 'Could not clear recorded runs'); return }
+    if (currentUser) {
+      for (const run of state.runs) {
+        localStorage.removeItem(`level-up-route:${currentUser.uid}:${run.id}`)
+        void deleteRunRoute(currentUser.uid, run.id).catch((error) => console.error('Route cleanup failed', error))
+      }
+    }
     resetConfirmationOpen = false
     resetCodeError = ''
 
-    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, attendanceDates: {}, xpHistory: {}, xpBreakdown: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], lastAttendanceCheckDate: undefined }
+    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, attendanceDates: {}, xpHistory: {}, xpBreakdown: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], runs: [], runHistoryResetAt, lastAttendanceCheckDate: undefined }
     save()
     render()
     showToast('Progress reset to Level 1')
@@ -1376,6 +1431,12 @@ function handleRemoteProgress(data: CloudRecord | null, meta: { pending: boolean
     }
     localStorage.setItem(OWNER_KEY, user.uid)
     markDirty()
+  } else if (owner === user.uid && Number(data.runHistoryResetAt ?? 0) < state.runHistoryResetAt) {
+    markDirty()
+  } else if (owner === user.uid && Number(data.runHistoryResetAt ?? 0) > state.runHistoryResetAt) {
+    adoptRemote(data, user.uid)
+    setSyncStatus('synced')
+    changed = true
   } else if (stableStringify(normalizeRemote(data)) === stableStringify(cloudSnapshot())) {
     localStorage.setItem(OWNER_KEY, user.uid)
     isDirty = false
@@ -1429,6 +1490,7 @@ function startCloudSync() {
 }
 
 async function signOutAndClear() {
+  if (hasActiveRun()) return false
   window.clearTimeout(syncTimer)
   if (isDirty && currentUser) {
     const saved = await Promise.race([pushToCloud(), new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 8000))])
@@ -1436,8 +1498,9 @@ async function signOutAndClear() {
   }
   stopProgressWatch?.()
   stopProgressWatch = null
+  disconnectRunTracker()
   await signOutUser()
-  // The cloud copy is the source of truth, so nothing from this account stays on the device.
+  // Native route backups remain in app-private storage, scoped to their recording account.
   ;['level-up-state', OWNER_KEY, DIRTY_KEY, RESET_CREDENTIAL_KEY, 'level-up-quote-tags', 'level-up-custom-quotes', 'level-up-saved-quotes', 'level-up-current-quote'].forEach((key) => localStorage.removeItem(key))
   state = buildState({})
   resetCredential = null
@@ -1483,6 +1546,7 @@ function renderAuthGate() {
       <div class="auth-links"><button type="button" id="auth-toggle">${isSignUp ? 'I already have an account' : 'Create an account'}</button>${isSignUp ? '' : '<button type="button" id="auth-reset">Forgot password?</button>'}</div>`
   }
   const app = document.querySelector<HTMLDivElement>('#app')!
+  if (!app.querySelector('.auth-shell')) retainPageVideos()
   const existingAuthCard = app.querySelector<HTMLElement>('.auth-shell .auth-card')
   if (existingAuthCard) {
     existingAuthCard.innerHTML = body
@@ -1490,11 +1554,8 @@ function renderAuthGate() {
     if (signOutConfirmationOpen) app.querySelector('.auth-main')?.insertAdjacentHTML('beforeend', renderSignOutConfirmation())
   } else {
     app.innerHTML = `<div class="app-shell auth-shell"><main class="auth-main"><div class="auth-scene" aria-hidden="true"><video class="app-video auth-background-video" autoplay muted loop playsinline preload="auto"><source src="${authBackgroundVideo}" type="video/mp4"></video><span class="auth-video-overlay"></span><span class="auth-portal"></span><span class="auth-shadow"><i></i><i></i></span><span class="auth-particle auth-particle-a"></span><span class="auth-particle auth-particle-b"></span><span class="auth-particle auth-particle-c"></span><span class="auth-floor"></span></div><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><section class="auth-card">${body}</section>${signOutConfirmationOpen ? renderSignOutConfirmation() : ''}</main></div>`
-    const backgroundVideo = document.querySelector<HTMLVideoElement>('.auth-background-video')
-    const revealBackground = () => backgroundVideo?.classList.add('is-ready')
-    backgroundVideo?.addEventListener('canplay', revealBackground, { once: true })
-    if (backgroundVideo && backgroundVideo.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) revealBackground()
   }
+  mountPageVideos()
 
   const emailInput = document.querySelector<HTMLInputElement>('#auth-email')
   emailInput?.addEventListener('input', () => { authEmail = emailInput.value })
