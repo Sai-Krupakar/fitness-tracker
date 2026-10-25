@@ -172,7 +172,7 @@ const progress = (page: Page) => page.evaluate(() => JSON.parse(localStorage.get
 
 test('stationary start/stop creates no workout and cannot replay a legacy 461 m run', async ({ page }) => {
   await prepare(page, 'stationary')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await expect(page.getByText("Today's total: 0 km", { exact: true })).toBeVisible()
   await page.locator('#open-run-recorder').click()
   await page.locator('#run-start').click()
@@ -190,7 +190,7 @@ test('stationary start/stop creates no workout and cannot replay a legacy 461 m 
 
 test('a genuinely pending new recording is recovered and credited once', async ({ page }) => {
   await prepare(page, 'pending')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await expect(page.getByText("Today's total: 0.012 km", { exact: true })).toBeVisible()
   await expect.poll(() => page.evaluate(() => (window as unknown as Harness).acknowledgements)).toEqual(['fresh-pending'])
   await page.evaluate(() => dispatchEvent(new Event('online')))
@@ -205,6 +205,7 @@ test('a genuinely pending new recording is recovered and credited once', async (
 test('reset survives an in-flight native history response and an older cloud snapshot', async ({ page }) => {
   await prepare(page, 'race')
   await page.locator('#profile').click()
+  await page.locator('#profile-tab-settings').click()
   await page.locator('#reset-progress').click()
   await page.locator('#reset-code-new').fill('123456')
   await page.locator('#reset-code-confirm').fill('123456')
@@ -226,7 +227,7 @@ test('reset survives an in-flight native history response and an older cloud sna
 
 test('a newer reset from another device wins over locally unsynced progress', async ({ page }) => {
   await prepare(page, 'pending')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await expect(page.getByText("Today's total: 0.012 km", { exact: true })).toBeVisible()
   await page.evaluate(() => {
     const harness = window as unknown as Harness
@@ -244,7 +245,7 @@ test('a newer reset from another device wins over locally unsynced progress', as
 
 test('training uses decimal kilometres and saves the entered distance unchanged', async ({ page }) => {
   await prepare(page, 'stationary')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   const reading = page.getByRole('spinbutton', { name: 'Run kilometres' })
   await expect(reading).toHaveAttribute('step', '0.001')
   await expect(reading).toHaveAttribute('inputmode', 'decimal')
@@ -258,7 +259,7 @@ test('training uses decimal kilometres and saves the entered distance unchanged'
 
 test('exercise titles and controls share a row while totals have full width on small phones', async ({ page }) => {
   await prepare(page, 'stationary')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await page.getByRole('spinbutton', { name: 'Run kilometres' }).fill('0.013')
   await page.locator('.add-exercise[data-exercise="run"]').click()
   await page.getByRole('spinbutton', { name: 'Push-ups count' }).fill('12345')
@@ -297,7 +298,7 @@ test('exercise titles and controls share a row while totals have full width on s
 
 test('Finish downloads once and keeps the map and metrics until the next Start', async ({ page }) => {
   await prepare(page, 'completed')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await page.locator('#open-run-recorder').click()
   await expect(page.locator('#run-start')).toBeVisible()
   await expect(page.locator('#run-time')).toHaveText('00:00')
@@ -353,7 +354,7 @@ test('Finish downloads once and keeps the map and metrics until the next Start',
   await expect(page.locator('#run-map path.leaflet-interactive')).toHaveCount(3)
   expect(await page.evaluate(() => (window as unknown as Harness).imageExports.length)).toBe(1)
   await page.reload()
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await page.locator('#open-run-recorder').click()
   await expect(page.locator('#run-distance')).toHaveText('4,340')
   await expect(page.locator('#run-map path.leaflet-interactive')).toHaveCount(3)
@@ -374,7 +375,7 @@ for (const failure of ['cancelled', 'storage'] as const) {
       harness.cancelExport = failure === 'cancelled'
       harness.failExport = failure === 'storage'
     }, failure)
-    await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+    await page.getByRole('link', { name: "HUNTER LOG" }).click()
     await page.locator('#open-run-recorder').click()
     await page.locator('#run-start').click()
     await page.locator('#run-finish').click()
@@ -445,6 +446,74 @@ test('Profile does not show saved runs or persist generated images', async ({ pa
     .not.toContain('level-up-run-images')
 })
 
+test('Profile sections organize overview, progression, stats, and settings', async ({ page }) => {
+  await prepare(page, 'stationary')
+  await page.locator('#profile').click()
+  await expect(page.getByRole('heading', { name: 'Hunter status' })).toHaveCount(0)
+  await expect(page.getByText('PLAYER PROFILE')).toHaveCount(0)
+  await expect(page.locator('.profile-tabs')).toHaveCSS('position', 'sticky')
+  await expect(page.locator('#profile-tab-overview')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('#profile-tab-overview')).toHaveClass(/active/)
+  await expect(page.locator('.profile-rank-name')).toBeVisible()
+  await expect(page.locator('.xp-chart-card')).toBeVisible()
+
+  await page.getByRole('tab', { name: 'PROGRESS' }).click()
+  await expect(page.locator('#show-level-progress')).toBeVisible()
+  await expect(page.locator('.rank-up-history')).toBeVisible()
+
+  await page.getByRole('tab', { name: 'STATS' }).click()
+  await expect(page.locator('.profile-day-counts')).toBeVisible()
+  await expect(page.locator('.system-stats')).toBeVisible()
+
+  await page.getByRole('tab', { name: 'SETTINGS' }).click()
+  await expect(page.locator('#app-theme')).toBeVisible()
+  await expect(page.locator('.account-card')).toBeVisible()
+})
+
+test('progress rank path shows all descriptions in one info popup', async ({ page }) => {
+  await prepare(page, 'stationary')
+  await page.locator('#profile').click()
+  await page.getByRole('tab', { name: 'PROGRESS' }).click()
+  await page.locator('#show-level-progress').check()
+  await page.getByRole('link', { name: 'PROGRESS' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Rank path' })).toBeVisible()
+  await expect(page.locator('.ladder-description')).toHaveCount(0)
+  await expect(page.locator('[data-rank-info]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'View information for all ranks' }).click()
+  await expect(page.getByRole('dialog')).toContainText("The World's Weakest Hunter")
+  await expect(page.getByRole('dialog')).toContainText('The ultimate evolution and realization of his power.')
+  await expect(page.locator('.rank-info-list li')).toHaveCount(8)
+  await page.getByRole('button', { name: 'Close rank information' }).last().click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('today completion shows the total XP earned for the day', async ({ page }) => {
+  await prepare(page, 'stationary')
+  await page.getByRole('link', { name: 'HUNTER LOG' }).click()
+  await page.locator('[data-quantity="push"]').fill('2')
+  await page.locator('.add-exercise[data-exercise="push"]').click()
+  await page.locator('#complete-today').click()
+  await expect(page.locator('.today-completion-xp')).toContainText('TOTAL XP TODAY')
+  await expect(page.locator('.today-completion-xp strong')).toHaveText('+1.2 XP')
+})
+
+test('switching app tabs returns the page to the top', async ({ page }) => {
+  await prepare(page, 'stationary')
+  await page.getByRole('link', { name: 'CHALLENGES' }).click()
+  await page.evaluate(() => {
+    const spacer = document.createElement('div')
+    spacer.style.height = '1600px'
+    document.querySelector('main')!.append(spacer)
+    window.scrollTo(0, document.documentElement.scrollHeight)
+  })
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+
+  await page.getByRole('link', { name: 'HOME' }).click()
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+  await expect(page.locator('.hero-panel')).toBeVisible()
+})
+
 test('idle tracking does not repeatedly request native snapshots or scan history', async ({ page }) => {
   await prepare(page, 'stationary')
   await expect.poll(() => page.evaluate(() => (window as unknown as Harness).snapshotCalls)).toBe(1)
@@ -461,7 +530,7 @@ test('idle tracking does not repeatedly request native snapshots or scan history
 
 test('training exercises have no background video before or after logging', async ({ page }) => {
   await prepare(page, 'stationary')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await expect(page.getByRole('heading', { name: 'Log your training' })).toBeVisible()
   await expect(page.locator('.today-training-layout video')).toHaveCount(0)
   await expect(page.locator('.today-training-background')).toHaveCount(0)
@@ -477,7 +546,7 @@ test('profile video keeps its element across updates and pauses when hidden or o
   const video = page.locator('.profile-rank-video')
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false)
   await video.evaluate((element: HTMLVideoElement) => { element.dataset.retained = 'true' })
-  await page.locator('#system-stats-info').click()
+  await page.locator('[data-xp-range="90"]').click()
   await page.evaluate(() => window.scrollTo(0, 0))
   await expect(video).toHaveAttribute('data-retained', 'true')
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false)
@@ -510,7 +579,7 @@ test('profile video keeps its element across updates and pauses when hidden or o
 
 test('a 13 metre tracked run earns 0.0325 XP without losing the fractional credit', async ({ page }) => {
   await prepare(page, 'short-xp')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await expect(page.getByText("Today's total: 0.013 km", { exact: true })).toBeVisible()
   await expect.poll(() => page.evaluate(() => (window as unknown as Harness).acknowledgements)).toEqual(['fresh-pending'])
   expect((await progress(page)).xp).toBe(1.0325)
@@ -525,7 +594,7 @@ test('a 13 metre tracked run earns 0.0325 XP without losing the fractional credi
 
 test('a one metre manual entry preserves its 0.0025 XP credit', async ({ page }) => {
   await prepare(page, 'stationary')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await page.getByRole('spinbutton', { name: 'Run kilometres' }).fill('0.001')
   await page.locator('.add-exercise[data-exercise="run"]').click()
   await expect(page.getByText('0.001 km logged · +0.0025 XP', { exact: true })).toBeVisible()
@@ -535,7 +604,7 @@ test('a one metre manual entry preserves its 0.0025 XP credit', async ({ page })
 
 test('previously rounded-away run XP is restored once and survives reopening', async ({ page }) => {
   await prepare(page, 'rounded-xp')
-  await page.getByRole('link', { name: "TODAY'S LOG" }).click()
+  await page.getByRole('link', { name: "HUNTER LOG" }).click()
   await expect.poll(async () => (await progress(page)).xp).toBe(1.0325)
   expect((await progress(page)).runs).toHaveLength(1)
   await page.reload()

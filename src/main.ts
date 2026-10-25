@@ -12,6 +12,7 @@ import authBackgroundVideo from './assets/From Klickpin.com- Creative hemming tr
 type ExerciseEntry = { id: string; label: string; xpPerUnit: number; unitLabel: string }
 type Challenge = { name: string; detail: string; reward: number; className: string }
 type DayMode = 'training' | 'recovery'
+type RankPromotion = { id: string; fromRank: string; toRank: string; timestamp: string }
 type TrainingState = {
   completed: number;
   challengeDone: boolean;
@@ -23,6 +24,8 @@ type TrainingState = {
   attendanceDates: Record<string, DayMode>;
   xpHistory: Record<string, number>;
   xpBreakdown: Record<string, Record<string, number>>;
+  rankUpHistory: RankPromotion[];
+  rankUpQueue: RankPromotion[];
   customExercises: ExerciseEntry[];
   customChallenges: Challenge[];
   savedChallenges: Challenge[];
@@ -31,9 +34,10 @@ type TrainingState = {
   lastAttendanceCheckDate?: string;
 }
 type Tab = 'home' | 'today' | 'progress' | 'missions' | 'profile' | 'run'
+type ProfileTab = 'overview' | 'progress' | 'stats' | 'settings'
 
 const XP_CONFIG = {
-  levelThresholds: [0, 333, 778, 1444, 2333, 3333, 4555, 5999, 7777],
+  levelThresholds: [0, 432, 1008, 1872, 3024, 4320, 5904, 7777],
   exercise: {
     push: 0.1,
     run: 2.5,
@@ -45,14 +49,14 @@ const XP_CONFIG = {
 } as const
 
 const levels = [
-  { name: 'Awakening', rank: '01', push: '20 x 3', squat: '20 x 3', core: '20 x 3', run: '2 km', xp: 333 },
-  { name: 'Recruit', rank: '02', push: '22 x 3', squat: '22 x 3', core: '22 x 3', run: '2.5 km', xp: 778 },
-  { name: 'Hunter', rank: '03', push: '25 x 3', squat: '25 x 3', core: '25 x 3', run: '3 km', xp: 1444 },
-  { name: 'Elite', rank: '04', push: '28 x 3', squat: '28 x 3', core: '28 x 3', run: '4 km', xp: 2333 },
-  { name: 'Commander', rank: '05', push: '30 x 3', squat: '30 x 3', core: '30 x 3', run: '5 km', xp: 3333 },
-  { name: 'Monarch', rank: '06', push: '25 x 4', squat: '35 x 3', core: '35 x 3', run: '6 km', xp: 4555 },
-  { name: 'Shadow Monarch', rank: '07', push: '25 x 4', squat: '25 x 4', core: '25 x 4', run: '8 km', xp: 5999 },
-  { name: 'National Level', rank: '08', push: '100 total', squat: '100 total', core: '100 total', run: '10 km', xp: 7777 },
+  { name: 'Weak Hunter (E-Rank)', description: "The World's Weakest Hunter", rank: '01', push: '20 x 3', squat: '20 x 3', core: '20 x 3', run: '2 km', xp: 0 },
+  { name: 'Awakening (Player)', description: 'The System selects him. His journey begins.', rank: '02', push: '22 x 3', squat: '22 x 3', core: '22 x 3', run: '2.5 km', xp: 432 },
+  { name: 'Wolf Slayer', description: 'Begins leveling up and hunting stronger monsters.', rank: '03', push: '25 x 3', squat: '25 x 3', core: '25 x 3', run: '3 km', xp: 1008 },
+  { name: 'Necromancer', description: 'Unlocks the Necromancer class.', rank: '04', push: '28 x 3', squat: '28 x 3', core: '28 x 3', run: '4 km', xp: 1872 },
+  { name: 'Shadow Monarch (Shadow Extraction)', description: 'Unlocks the ability to extract and command shadows.', rank: '05', push: '30 x 3', squat: '30 x 3', core: '30 x 3', run: '5 km', xp: 3024 },
+  { name: 'Demon Hunter', description: 'A milestone representing his growing combat strength.', rank: '06', push: '25 x 4', squat: '35 x 3', core: '35 x 3', run: '6 km', xp: 4320 },
+  { name: 'S-Rank Hunter (Official)', description: 'Officially recognized as an S-Rank Hunter.', rank: '07', push: '25 x 4', squat: '25 x 4', core: '25 x 4', run: '8 km', xp: 5904 },
+  { name: 'True Shadow Monarch', description: 'The ultimate evolution and realization of his power.', rank: '08', push: '100 total', squat: '100 total', core: '100 total', run: '10 km', xp: 7777 },
 ]
 const baseChallenges: Challenge[] = [
   { name: 'Power ladder', detail: 'Complete 5 rounds: 15 push-ups, 20 squats, and 30 high knees. Rest 90 seconds between rounds.', reward: 8, className: 'power' },
@@ -70,6 +74,11 @@ const baseChallenges: Challenge[] = [
 ]
 const stored = localStorage.getItem('level-up-state')
 const oldState = stored ? JSON.parse(stored) : {}
+const LEVEL_PROGRESS_VISIBILITY_KEY = 'level-up-show-level-progress'
+let showLevelProgress = localStorage.getItem(LEVEL_PROGRESS_VISIBILITY_KEY) === 'true'
+type AppTheme = 'classic' | 'solo-leveling'
+const APP_THEME_KEY = 'level-up-theme'
+let appTheme: AppTheme = localStorage.getItem(APP_THEME_KEY) === 'solo-leveling' ? 'solo-leveling' : 'classic'
 const localDateKey = (date: Date) => { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, '0'); const day = String(date.getDate()).padStart(2, '0'); return `${year}-${month}-${day}` }
 const todayKey = () => localDateKey(new Date())
 const buildState = (oldState: Record<string, any>): TrainingState => ({
@@ -83,6 +92,8 @@ const buildState = (oldState: Record<string, any>): TrainingState => ({
   attendanceDates: oldState.attendanceDates ?? {},
   xpHistory: oldState.xpHistory ?? {},
   xpBreakdown: oldState.xpBreakdown ?? {},
+  rankUpHistory: oldState.rankUpHistory ?? [],
+  rankUpQueue: oldState.rankUpQueue ?? [],
   customExercises: (oldState.customExercises ?? []).map((exercise: Partial<ExerciseEntry>) => ({
     id: exercise.id ?? buildExerciseId(exercise.label ?? 'exercise'),
     label: exercise.label ?? 'Custom exercise',
@@ -151,17 +162,19 @@ const addXp = (dateKey: string, amount: number, source: string) => {
   const before = state.xp
   state.xp = roundXp(Math.max(0, state.xp + amount))
   const applied = state.xp - before
+  if (applied === 0) return 0
   state.xpHistory[dateKey] = roundXp((state.xpHistory[dateKey] ?? 0) + applied)
   const day = state.xpBreakdown[dateKey] ?? {}
   day[source] = roundXp((day[source] ?? 0) + applied)
   state.xpBreakdown[dateKey] = day
+  return applied
 }
 const challenges = () => state.savedChallenges
+let attendancePromptMode: DayMode | null = null
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
 const current = () => levels[Math.min(state.currentLevel - 1, levels.length - 1)]
 const todayLog = () => state.dailyLogs[todayKey()] ?? {}
 const hasTrainingActivity = (dateKey: string) => Boolean(state.activityDates[dateKey]) || Object.keys(state.dailyLogs[dateKey] ?? {}).length > 0
-const hunterTitle = () => ['The Awakened', 'Iron Will', 'Dungeon Breaker', 'Distance Hunter', 'Elite Vanguard', 'Commanding Force', 'Shadow Sovereign', 'National Hunter'][state.currentLevel - 1] ?? 'National Hunter'
 const hunterStats = () => [
   { label: 'STR', value: Math.floor((state.exerciseTotals.push ?? 0) / 10), detail: 'Strength' },
   { label: 'VIT', value: state.completed, detail: 'Vitality' },
@@ -227,13 +240,27 @@ const getExerciseXpLabel = (exerciseId: string) => {
   const exercise = state.customExercises.find((item) => item.id === exerciseId)
   return `+${exercise?.xpPerUnit ?? XP_CONFIG.exercise.custom} XP / ${exercise?.unitLabel ?? 'unit'}`
 }
-const syncLevelFromXp = () => {
+const syncLevelFromXp = (notify = true) => {
+  const previousLevel = state.currentLevel
   let nextLevel = 1
   for (let index = 0; index < XP_CONFIG.levelThresholds.length - 1; index += 1) {
     if (state.xp >= XP_CONFIG.levelThresholds[index + 1]) nextLevel = index + 2
   }
   state.currentLevel = Math.min(nextLevel, levels.length)
+  if (!notify || state.currentLevel <= previousLevel) return
+  for (let level = previousLevel + 1; level <= state.currentLevel; level += 1) {
+    const timestamp = new Date().toISOString()
+    const promotion: RankPromotion = {
+      id: `${timestamp}-${level}-${state.rankUpHistory.length}`,
+      fromRank: levels[level - 2].name,
+      toRank: levels[level - 1].name,
+      timestamp,
+    }
+    state.rankUpHistory.push(promotion)
+    state.rankUpQueue.push(promotion)
+  }
 }
+syncLevelFromXp(false)
 const getLevelProgress = () => {
   const currentThresholdIndex = Math.min(state.currentLevel - 1, XP_CONFIG.levelThresholds.length - 2)
   const previousThreshold = XP_CONFIG.levelThresholds[currentThresholdIndex]
@@ -272,8 +299,8 @@ const applyMissedDayPenalties = () => {
 
   let dateKey = getNextDateKey(state.lastAttendanceCheckDate)
   while (dateKey <= throughDate) {
-    if (!state.attendanceDates[dateKey] && !hasTrainingActivity(dateKey)) {
-      addXp(dateKey, -XP_CONFIG.exercise.missPenalty, 'penalty')
+    if (state.xp > 0 && !state.attendanceDates[dateKey] && !hasTrainingActivity(dateKey)) {
+      addXp(dateKey, -Math.min(XP_CONFIG.exercise.missPenalty, state.xp), 'penalty')
     }
     state.lastAttendanceCheckDate = dateKey
     dateKey = getNextDateKey(dateKey)
@@ -344,6 +371,8 @@ const setCurrentQuote = (text: string) => {
 }
 
 let activeTab: Tab = 'home'
+let activeProfileTab: ProfileTab = 'overview'
+let rankInfoOpen = false
 let tagDropdownOpen = false
 let quoteLoading = false
 let customQuoteFormOpen = false
@@ -441,20 +470,6 @@ function renderCurrentQuote() {
 }
 
 function renderHomeTab(level: ReturnType<typeof current>) {
-  const progress = getLevelProgress()
-  const progressWidth = `${Math.max(0, Math.min(progress.percent, 100))}%`
-  const nextRank = levels[Math.min(state.currentLevel, levels.length - 1)]
-  const nextThreshold = XP_CONFIG.levelThresholds[Math.min(state.currentLevel, XP_CONFIG.levelThresholds.length - 1)]
-  const xpToNext = Math.max(nextThreshold - state.xp, 0)
-  const objectiveText = state.currentLevel < levels.length
-    ? `${xpToNext} XP to ${nextRank.name}`
-    : 'National Level reached'
-  const battleFeed = [
-    `Training days: ${state.completed} total`,
-    `Quest board: ${challenges().length} missions loaded`,
-    `Next target: ${objectiveText}`,
-    `Shadow mode: ${state.challengeDone ? 'quest complete' : 'ready for battle'}`,
-  ]
   const xpRules = `
     <div class="xp-rule"><span>Push-ups : </span><strong>+${XP_CONFIG.exercise.push} XP / rep</strong></div>
     <div class="xp-rule"><span>Run : </span><strong>+${XP_CONFIG.exercise.run} XP / km</strong></div>
@@ -467,53 +482,60 @@ function renderHomeTab(level: ReturnType<typeof current>) {
       <div class="hero-glow hero-glow-a"></div>
       <div class="hero-glow hero-glow-b"></div>
       <div class="dungeon-scene" aria-hidden="true"><span class="portal-ring"></span><span class="hunter-silhouette"><i></i><i></i></span><span class="shadow-particle particle-one"></span><span class="shadow-particle particle-two"></span><span class="shadow-particle particle-three"></span></div>
-      <div class="eyebrow"><span class="line"></span> REAL-LIFE TRAINING ARC <span class="line"></span></div>
       <div class="hero-content">
         <div class="hero-details">
           <div class="hero-copy">
             <div>
               <p class="muted">CURRENT RANK</p>
-              <h1>Level ${String(state.currentLevel).padStart(2, '0')}</h1>
-              <p class="rank-name">${level.name}</p>
-            </div>
-            <div class="hero-rank-visual">
-              <video class="app-video hero-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Cultural mountain town video">
-                <source src="${mountainTownVideo}" type="video/mp4">
-              </video>
+              <h1 class="current-rank-title">${level.name}</h1>
+              <p class="rank-description">${level.description}</p>
             </div>
           </div>
-          <div class="xp-row"><span>SELF-PACED</span></div>
-          <div class="xp-track"><span class="open-progress" style="width: ${progressWidth};"></span></div>
-          <div class="xp-progress-meta"><span>${state.xp} XP</span><span>${progress.currentProgress} / ${progress.totalProgress} to next</span></div>
-          <div class="xp-rules">${xpRules}</div>
+          <div class="home-xp-total"><span>XP EARNED</span><strong>${state.xp.toLocaleString()} XP</strong></div>
         </div>
+        <div class="hero-rank-visual">
+          <video class="app-video hero-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Cultural mountain town video">
+            <source src="${mountainTownVideo}" type="video/mp4">
+          </video>
+        </div>
+        <div class="xp-rules">${xpRules}</div>
       </div>
     </section>
-    ${renderDayCountSummary('home-day-counts')}
-
-    <!-- <section class="raid-board">
-      <div class="section-heading compact raid-heading">
-        <div><p class="kicker">COMMAND FEED</p><h2>Battle status</h2></div>
-      </div>
-      <div class="battle-feed">
-        ${battleFeed.map((entry) => `<div class="feed-item"><span class="feed-dot"></span><p>${entry}</p></div>`).join('')}
-      </div>
-    </section> -->`
+  `
 }
 
 function renderProgressTab(ladderRows: string) {
+  const progress = getLevelProgress()
+  const nextRank = levels[Math.min(state.currentLevel, levels.length - 1)]
+  const nextThreshold = XP_CONFIG.levelThresholds[Math.min(state.currentLevel, XP_CONFIG.levelThresholds.length - 1)]
+  const xpToNext = Math.max(nextThreshold - state.xp, 0)
   return `
-    <section class="progress-layout">
-      <div class="progress-details">
-        <section class="section-heading"><div><p class="kicker">YOUR PROGRESSION</p><h2>Rank path</h2></div><span class="muted">${state.currentLevel} / ${levels.length}</span></section>
-        ${renderDayCountSummary('progress-day-counts')}
+    <section class="progress-page">
+      <section class="section-heading rank-path-heading"><div><p class="kicker">YOUR PROGRESSION</p><h2>Rank path</h2></div><button class="rank-info-button rank-path-info-button" id="rank-path-info" type="button" data-open-rank-info aria-label="View information for all ranks" aria-expanded="${rankInfoOpen}">i</button></section>
+      <section class="progress-xp-card">
+        <div class="xp-row"><span>SELF-PACED</span></div>
+        ${state.currentLevel < levels.length ? `<div class="xp-track"><span class="open-progress" style="width: ${Math.min(progress.percent, 100)}%;"></span></div>` : ''}
+        <div class="xp-progress-meta"><span>${state.xp} XP total</span><span>${state.currentLevel < levels.length ? `${xpToNext} XP to ${nextRank.name}` : 'Ultimate rank reached'}</span></div>
+      </section>
+      <section class="progress-layout">
+        <div class="progress-details">
         <section class="ladder">${ladderRows}</section>
-      </div>
-      <div class="progress-rank-visual">
-        <video class="app-video progress-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Pattern storage video">
-          <source src="${patternStorageVideo}" type="video/mp4">
-        </video>
-      </div>
+        </div>
+        <div class="progress-rank-visual">
+          <video class="app-video progress-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Pattern storage video">
+            <source src="${patternStorageVideo}" type="video/mp4">
+          </video>
+        </div>
+      </section>
+      ${rankInfoOpen ? `<div class="rank-info-overlay">
+          <button class="rank-info-backdrop" type="button" data-close-rank-info aria-label="Close rank information"></button>
+          <section class="rank-info-popup" role="dialog" aria-modal="true" aria-labelledby="rank-info-title">
+            <button class="rank-info-close" type="button" data-close-rank-info aria-label="Close rank information">×</button>
+            <p class="kicker">HUNTER RANKS</p>
+            <h3 id="rank-info-title">Rank information</h3>
+            <ol class="rank-info-list">${levels.map((rank, index) => `<li><b>${String(index + 1).padStart(2, '0')} · ${rank.name}</b><span>${rank.description}</span></li>`).join('')}</ol>
+          </section>
+        </div>` : ''}
     </section>`
 }
 
@@ -579,17 +601,20 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
 
   if (todayCompletionOpen) {
     const isRecoveryDay = todayMode === 'recovery'
+    const todayXp = state.xpHistory[todayKey()] ?? 0
+    const formattedTodayXp = `${todayXp > 0 ? '+' : ''}${formatXp(todayXp)} XP`
     return `
       <section class="today-completion">
         <p class="kicker">${isRecoveryDay ? 'RECOVERY COMPLETE' : 'TARGET CLEARED'}</p>
         <h2>${isRecoveryDay ? 'You made space to reset.' : "Today's target achieved."}</h2>
         <p class="today-completion-quote">${isRecoveryDay ? 'REST IS PART OF THE TRAINING ARC.' : "ARISE. TODAY'S QUEST IS COMPLETE."}</p>
+        <div class="today-completion-xp"><span>TOTAL XP TODAY</span><strong>${formattedTodayXp}</strong></div>
         <div class="today-completion-visual">
           <video class="app-video" autoplay muted loop playsinline preload="auto" aria-label="Travel packing inspiration video">
             <source src="${travelPackingVideo}" type="video/mp4">
           </video>
         </div>
-        <button class="small-button" id="return-to-today-log" type="button">${isRecoveryDay ? 'BACK TO RECOVERY DAY' : "BACK TO TODAY'S LOG"}</button>
+        <button class="small-button" id="return-to-today-log" type="button">${isRecoveryDay ? 'BACK TO RECOVERY DAY' : "BACK TO HUNTER LOG"}</button>
       </section>`
   }
 
@@ -763,57 +788,87 @@ const renderXpChart = () => {
 }
 
 function renderProfileTab(level: ReturnType<typeof current>) {
-  const progress = getLevelProgress()
   const stats = hunterStats()
-  const dayCounts = getDayCounts()
+  const profileSection = (tab: ProfileTab, content: string) => `<section class="profile-tab-panel" id="profile-panel-${tab}" role="tabpanel" aria-labelledby="profile-tab-${tab}" ${activeProfileTab === tab ? '' : 'hidden'}>${content}</section>`
+  const rankHistory = [...state.rankUpHistory].reverse()
+  const rankHistoryMarkup = rankHistory.length
+    ? rankHistory.map((promotion) => {
+      const date = new Date(promotion.timestamp)
+      const timestamp = Number.isNaN(date.getTime()) ? promotion.timestamp : date.toLocaleString()
+      return `<article class="rank-up-history-card">
+        <div class="notification-frame" aria-hidden="true"></div>
+        <div class="rank-up-history-content">
+          <div class="daily-quest-notice"><span class="rank-up-notice-icon" aria-hidden="true"><i>!</i></span><b class="rank-up-notice-label">NOTIFICATION</b></div>
+          <p class="rank-up-history-message">Your job has changed</p>
+          <div class="rank-up-history-from">[${escapeHtml(promotion.fromRank)}]</div>
+          <span class="rank-up-history-arrow" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div class="rank-up-history-to">[${escapeHtml(promotion.toRank)}]</div>
+          <time datetime="${escapeHtml(promotion.timestamp)}">${escapeHtml(timestamp)}</time>
+        </div>
+      </article>`
+    }).join('')
+    : '<p class="rank-up-history-empty">Rank-up notifications will be saved here as you advance.</p>'
+  const rankHistorySection = `<section class="rank-up-history">
+    <section class="section-heading"><div><p class="kicker">SYSTEM ARCHIVE</p><h2>Rank-up history</h2></div><span class="mission-count">${state.rankUpHistory.length}</span></section>
+    <div class="rank-up-history-list">${rankHistoryMarkup}</div>
+  </section>`
   const accountCard = `<section class="mission-card account-card"><div class="profile-stat"><span>Cloud backup</span><b id="sync-status" data-state="${syncStatus}">${syncStatusText[syncStatus]}</b></div><div class="account-actions"><button class="small-button account-signout" id="sign-out" type="button">SIGN OUT</button><button class="reset-button" id="reset-progress" type="button">RESET LOCAL PROGRESS</button></div></section>`
-  const badgeList = [
-    { label: 'Hunter title', value: hunterTitle() },
-    { label: 'Total plan days', value: `${dayCounts.total} ${dayCounts.total === 1 ? 'day' : 'days'}` },
-    { label: 'Power level', value: `${state.xp} XP` },
-    { label: 'Next rank', value: level.name },
+  const profileTabs: { id: ProfileTab; label: string }[] = [
+    { id: 'overview', label: 'OVERVIEW' },
+    { id: 'progress', label: 'PROGRESS' },
+    { id: 'stats', label: 'STATS' },
+    { id: 'settings', label: 'SETTINGS' },
   ]
   return `
-    <section class="section-heading"><div><p class="kicker">PLAYER PROFILE</p><h2>Hunter status</h2></div></section>
-    <section class="mission-card profile-hero">
-      <div class="profile-details">
-        <div class="profile-hero-main">
-          <div class="avatar-ring">${String(state.currentLevel).padStart(2, '0')}</div>
-          <div>
-            <p class="muted">RANK</p>
-            <h3>Level ${String(state.currentLevel).padStart(2, '0')}</h3>
-            <p class="profile-rank-name">${level.name}</p>
+    <nav class="profile-tabs" role="tablist" aria-label="Profile sections">
+      ${profileTabs.map((tab) => `<button class="profile-tab-button ${activeProfileTab === tab.id ? 'active' : ''}" id="profile-tab-${tab.id}" type="button" role="tab" data-profile-tab="${tab.id}" aria-selected="${activeProfileTab === tab.id}" aria-controls="profile-panel-${tab.id}" tabindex="${activeProfileTab === tab.id ? 0 : -1}">${tab.label}</button>`).join('')}
+    </nav>
+    ${profileSection('overview', `
+      <section class="mission-card profile-hero">
+        <div class="profile-details">
+          <div class="profile-hero-main">
+            <div class="profile-rank-copy">
+              <p class="muted">RANK</p>
+              <p class="profile-rank-name">${level.name}</p>
+              <p class="rank-description">${level.description}</p>
+            </div>
+            <div class="profile-total-xp">
+              <span>TOTAL XP</span>
+              <strong>${state.xp.toLocaleString()} XP</strong>
+            </div>
           </div>
         </div>
-        <div class="profile-progress-wrap">
-          <div class="profile-progress-meta"><span>Progress to next tier</span><strong>${progress.currentProgress}/${progress.totalProgress}</strong></div>
-          <div class="xp-track"><span class="open-progress" style="width: ${Math.min(progress.percent, 100)}%;"></span></div>
+        <div class="profile-rank-visual">
+          <video class="app-video profile-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Summer outfit inspiration video">
+            <source src="${summerOutfitVideo}" type="video/mp4">
+          </video>
         </div>
-      </div>
-      <div class="profile-rank-visual">
-        <video class="app-video profile-rank-video" autoplay muted loop playsinline preload="auto" aria-label="Summer outfit inspiration video">
-          <source src="${summerOutfitVideo}" type="video/mp4">
-        </video>
-      </div>
-    </section>
-    <section class="achievement-grid">
-      ${badgeList.map((badge) => `
-        <article class="achievement-card">
-          <span>${badge.label}</span>
-          <strong>${badge.value}</strong>
-        </article>
-      `).join('')}
-    </section>
-    ${renderDayCountSummary('profile-day-counts')}
-    ${renderXpChart()}
-    <section class="system-stats" aria-label="Hunter stats">
-      <div class="system-stats-heading"><p class="kicker">SYSTEM STATUS</p><div class="system-stats-live"><span>LIVE VALUES</span><button class="system-info-button" id="system-stats-info" type="button" aria-label="How Hunter stats are calculated" aria-expanded="${systemInfoOpen}">i</button></div></div>
-      ${systemInfoOpen ? `<div class="system-stats-info" id="system-stats-explanation"><p>Values are calculated from your saved training activity.</p><ul><li><b>STR</b> = total push-ups / 10</li><li><b>VIT</b> = completed workout days</li><li><b>AGI</b> = total run distance in km</li><li><b>END</b> = attended workout or recovery days</li><li><b>DEX</b> = custom exercises created</li></ul></div>` : ''}
-      <div class="system-stats-grid">
-        ${stats.map((stat) => `<div class="system-stat"><b>${stat.label}</b><strong>${stat.value}</strong><span>${stat.detail}</span></div>`).join('')}
-      </div>
-    </section>
-    ${accountCard}`
+      </section>
+      ${renderXpChart()}
+    `)}
+    ${profileSection('progress', `
+      <section class="mission-card progression-setting">
+        <label for="show-level-progress"><span><b>Show level progression</b><small>Display ranks and XP needed for the next level.</small></span><input id="show-level-progress" type="checkbox" ${showLevelProgress ? 'checked' : ''}></label>
+      </section>
+      ${rankHistorySection}
+    `)}
+    ${profileSection('stats', `
+      ${renderDayCountSummary('profile-day-counts')}
+      <section class="system-stats" aria-label="Hunter stats">
+        <div class="system-stats-heading"><p class="kicker">SYSTEM STATUS</p><div class="system-stats-live"><span>LIVE VALUES</span><button class="system-info-button" id="system-stats-info" type="button" aria-label="How Hunter stats are calculated" aria-expanded="${systemInfoOpen}">i</button></div></div>
+        ${systemInfoOpen ? `<div class="system-stats-info" id="system-stats-explanation"><p>Values are calculated from your saved training activity.</p><ul><li><b>STR</b> = total push-ups / 10</li><li><b>VIT</b> = completed workout days</li><li><b>AGI</b> = total run distance in km</li><li><b>END</b> = attended workout or recovery days</li><li><b>DEX</b> = custom exercises created</li></ul></div>` : ''}
+        <div class="system-stats-grid">
+          ${stats.map((stat) => `<div class="system-stat"><b>${stat.label}</b><strong>${stat.value}</strong><span>${stat.detail}</span></div>`).join('')}
+        </div>
+      </section>
+    `)}
+    ${profileSection('settings', `
+      <section class="mission-card theme-setting">
+        <label for="app-theme"><span><b>App theme</b><small>Choose the classic look or Solo Leveling blue.</small></span><select id="app-theme"><option value="classic" ${appTheme === 'classic' ? 'selected' : ''}>Classic</option><option value="solo-leveling" ${appTheme === 'solo-leveling' ? 'selected' : ''}>Solo Leveling</option></select></label>
+      </section>
+      ${accountCard}
+    `)}
+    `
 }
 
 function wirePasswordVisibility() {
@@ -837,6 +892,7 @@ function renderCloudSetupGate() {
 }
 
 function render() {
+  document.documentElement.dataset.theme = appTheme
   if (!cloudEnabled) { disconnectRunTracker(); renderCloudSetupGate(); return }
   if (cloudEnabled && (!authReady || !currentUser || awaitingFirstSync)) { disconnectRunTracker(); renderAuthGate(); return }
   connectRunTracker(currentUser!.uid, {
@@ -858,13 +914,13 @@ function render() {
     let status = 'LOCKED'
     if (rank < state.currentLevel) status = 'CLEARED'
     if (rank === state.currentLevel) status = 'ACTIVE'
-    return `<div class="ladder-row ${rank === state.currentLevel ? 'active' : ''} ${rank < state.currentLevel ? 'cleared' : ''}"><span class="ladder-number">${item.rank}</span><span class="ladder-name">${item.name}</span><span class="ladder-meta"><span class="ladder-state">${status}</span><span class="ladder-xp">${item.xp.toLocaleString()} XP</span></span></div>`
+    return `<div class="ladder-row ${rank === state.currentLevel ? 'active' : ''} ${rank < state.currentLevel ? 'cleared' : ''}"><span class="ladder-copy"><span class="ladder-name">${item.name}</span></span><span class="ladder-meta"><span class="ladder-state">${status}</span><span class="ladder-xp">${item.xp.toLocaleString()} XP</span></span></div>`
   }).join('')
 
   let tabContent = ''
   if (activeTab === 'home') tabContent = renderHomeTab(level)
   if (activeTab === 'today') tabContent = renderTodayTab(log, todayLabel)
-  if (activeTab === 'progress') tabContent = renderProgressTab(ladderRows)
+  if (activeTab === 'progress' && showLevelProgress) tabContent = renderProgressTab(ladderRows)
   if (activeTab === 'missions') tabContent = renderChallengesTab()
   if (activeTab === 'profile') tabContent = renderProfileTab(level)
   if (activeTab === 'run') tabContent = `<section class="run-recording-page"><button class="small-button secondary-button run-page-back" id="close-run-recorder" type="button"><i data-lucide="arrow-left"></i>TRAINING DAY</button><section class="run-tracker" id="run-tracker" aria-label="GPS run recorder"></section></section>`
@@ -872,13 +928,37 @@ function render() {
   const navItem = (tab: Tab, icon: string, label: string) => `<a class="${activeTab === tab || (tab === 'today' && activeTab === 'run') ? 'active' : ''}" data-tab="${tab}" href="#${tab}"><span>${icon}</span>${label}</a>`
 
   const retainedVideos = retainPageVideos()
+  const activeRankPromotion = state.rankUpQueue[0]
 
   document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-    <div class="app-shell">
+    <div class="app-shell" data-theme="${appTheme}">
       <header class="topbar"><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><div class="header-status"><span class="status-dot"></span> ${todayLabel}</div><button class="icon-button" id="profile" aria-label="Open profile">◎</button></header>
       <main id="top">${tabContent}</main>
-      <nav class="bottom-nav">${navItem('home', '⌂', 'HOME')}${navItem('today', '◒', "TODAY'S LOG")}${navItem('progress', '▥', 'PROGRESS')}${navItem('missions', '✦', 'CHALLENGES')}${navItem('profile', '◉', 'PROFILE')}</nav>
+      <nav class="bottom-nav">${navItem('home', '⌂', 'HOME')}${navItem('today', '◒', "HUNTER LOG")}${showLevelProgress ? navItem('progress', '▥', 'PROGRESS') : `<!-- ${navItem('progress', '▥', 'PROGRESS')} -->`}${navItem('missions', '✦', 'CHALLENGES')}${navItem('profile', '◉', 'PROFILE')}</nav>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      ${attendancePromptMode ? `<div class="confirmation-dialog daily-quest-dialog" role="dialog" aria-modal="true" aria-labelledby="attendance-title">
+        <section class="confirmation-panel daily-quest-panel">
+          <div class="notification-frame" aria-hidden="true"></div>
+          <div class="daily-quest-notice"><span class="rank-up-notice-icon" aria-hidden="true"><i>!</i></span><b class="rank-up-notice-label">NOTIFICATION</b></div>
+          <h2 id="attendance-title">${attendancePromptMode === 'training' ? 'Welcome, Hunter' : 'Recovery Protocol'}</h2>
+          <p>${attendancePromptMode === 'training' ? 'Your training day is ready. Will you start training?' : 'Your recovery day is ready. Will you begin your recovery?'}</p>
+          <div class="confirmation-actions">
+            <button class="small-button secondary-button" id="cancel-attendance-prompt" type="button">CANCEL</button>
+            <button class="small-button daily-quest-complete" id="confirm-attendance-prompt" type="button">YES</button>
+          </div>
+        </section>
+      </div>` : ''}
+      ${activeRankPromotion && !attendancePromptMode ? `<div class="confirmation-dialog daily-quest-dialog rank-up-dialog" role="dialog" aria-modal="true" aria-labelledby="rank-up-title">
+        <section class="confirmation-panel daily-quest-panel rank-up-panel">
+          <div class="notification-frame" aria-hidden="true"></div>
+          <div class="daily-quest-notice"><span class="rank-up-notice-icon" aria-hidden="true"><i>!</i></span><b>NOTIFICATION</b></div>
+          <p class="rank-up-message">Your job has changed</p>
+          <h2 id="rank-up-title" class="rank-up-from">[${escapeHtml(activeRankPromotion.fromRank)}]</h2>
+          <span class="rank-up-arrow" aria-hidden="true"><i></i><i></i><i></i></span>
+          <p class="rank-up-to">[${escapeHtml(activeRankPromotion.toRank)}]</p>
+          <button class="small-button rank-up-dismiss" id="dismiss-rank-up" type="button">CONTINUE</button>
+        </section>
+      </div>` : ''}
       ${resetConfirmationOpen ? `<div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-dialog-title">
         <div class="confirmation-backdrop" id="cancel-reset"></div>
         <section class="confirmation-panel">
@@ -936,6 +1016,27 @@ function render() {
   wirePasswordVisibility()
 
   const showToast = (message: string) => { const toast = document.querySelector<HTMLDivElement>('#toast'); if (!toast) { return }; toast.textContent = message; toast.classList.add('visible'); window.setTimeout(() => toast.classList.remove('visible'), 2200) }
+  const confirmAttendanceStart = () => {
+    const mode = attendancePromptMode
+    if (!mode) return
+    attendancePromptMode = null
+    const credit = recordAttendance(mode)
+    if (credit === null) return
+    todayMode = mode
+    save()
+    render()
+    showToast(`${mode === 'training' ? 'Training' : 'Recovery'} started · +${credit} XP`)
+  }
+  document.querySelector('#cancel-attendance-prompt')?.addEventListener('click', () => {
+    attendancePromptMode = null
+    render()
+  })
+  document.querySelector('#confirm-attendance-prompt')?.addEventListener('click', confirmAttendanceStart)
+  document.querySelector('#dismiss-rank-up')?.addEventListener('click', () => {
+    state.rankUpQueue.shift()
+    save()
+    render()
+  })
   document.querySelectorAll<HTMLButtonElement>('.add-exercise').forEach((button) => button.addEventListener('click', () => {
     const id = button.dataset.exercise
     const input = document.querySelector<HTMLInputElement>(`[data-quantity="${id}"]`)
@@ -971,6 +1072,14 @@ function render() {
   })
   document.querySelector('#record-attendance')?.addEventListener('click', () => {
     if (todayMode === 'choose') return
+    const dateKey = todayKey()
+    if (todayMode === 'training' || todayMode === 'recovery') {
+      if (!state.attendanceDates[dateKey]) {
+        attendancePromptMode = todayMode
+        render()
+        return
+      }
+    }
     const credit = recordAttendance(todayMode)
     if (credit === null) return
     render()
@@ -1211,7 +1320,48 @@ function render() {
     render()
     showToast(`${challenge.name} completed · +${challenge.reward} XP`)
   })
-  document.querySelector('#profile')?.addEventListener('click', () => { activeTab = 'profile'; render() })
+  document.querySelector('#profile')?.addEventListener('click', () => {
+    activeTab = 'profile'
+    render()
+    window.scrollTo(0, 0)
+  })
+  const profileTabButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-profile-tab]')]
+  profileTabButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const tab = button.dataset.profileTab
+      if (tab !== 'overview' && tab !== 'progress' && tab !== 'stats' && tab !== 'settings') return
+      activeProfileTab = tab
+      render()
+    })
+    button.addEventListener('keydown', (event) => {
+      const currentIndex = profileTabButtons.indexOf(button)
+      const nextIndex = event.key === 'ArrowRight' ? (currentIndex + 1) % profileTabButtons.length
+        : event.key === 'ArrowLeft' ? (currentIndex - 1 + profileTabButtons.length) % profileTabButtons.length
+          : event.key === 'Home' ? 0
+            : event.key === 'End' ? profileTabButtons.length - 1
+              : -1
+      if (nextIndex < 0) return
+      event.preventDefault()
+      const tab = profileTabButtons[nextIndex].dataset.profileTab
+      if (tab !== 'overview' && tab !== 'progress' && tab !== 'stats' && tab !== 'settings') return
+      activeProfileTab = tab
+      render()
+      requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`#profile-tab-${tab}`)?.focus())
+    })
+  })
+  document.querySelector<HTMLInputElement>('#show-level-progress')?.addEventListener('change', (event) => {
+    showLevelProgress = (event.currentTarget as HTMLInputElement).checked
+    localStorage.setItem(LEVEL_PROGRESS_VISIBILITY_KEY, String(showLevelProgress))
+    if (!showLevelProgress && activeTab === 'progress') activeTab = 'profile'
+    render()
+  })
+  document.querySelector<HTMLSelectElement>('#app-theme')?.addEventListener('change', (event) => {
+    const selectedTheme = (event.currentTarget as HTMLSelectElement).value
+    if (selectedTheme !== 'classic' && selectedTheme !== 'solo-leveling') return
+    appTheme = selectedTheme
+    localStorage.setItem(APP_THEME_KEY, appTheme)
+    render()
+  })
   document.querySelector('#sign-out')?.addEventListener('click', () => {
     if (hasActiveRun()) { showToast('Finish and save your run before signing out'); return }
     signOutConfirmationOpen = true
@@ -1296,7 +1446,7 @@ function render() {
     resetConfirmationOpen = false
     resetCodeError = ''
 
-    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, attendanceDates: {}, xpHistory: {}, xpBreakdown: {}, customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], runs: [], runHistoryResetAt, lastAttendanceCheckDate: undefined }
+    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, attendanceDates: {}, xpHistory: {}, xpBreakdown: {}, rankUpHistory: [], rankUpQueue: [], customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], runs: [], runHistoryResetAt, lastAttendanceCheckDate: undefined }
     save()
     render()
     showToast('Progress reset to Level 1')
@@ -1322,9 +1472,27 @@ function render() {
   document.querySelectorAll<HTMLAnchorElement>('.bottom-nav a').forEach((link) => link.addEventListener('click', (event) => {
     event.preventDefault()
     const tab = link.dataset.tab as Tab
+    rankInfoOpen = false
     activeTab = tab
     render()
+    window.scrollTo(0, 0)
   }))
+  document.querySelector('[data-open-rank-info]')?.addEventListener('click', () => {
+    rankInfoOpen = true
+    render()
+    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.rank-info-close')?.focus())
+  })
+  document.querySelectorAll<HTMLButtonElement>('[data-close-rank-info]').forEach((button) => button.addEventListener('click', () => {
+    rankInfoOpen = false
+    render()
+    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#rank-path-info')?.focus())
+  }))
+  document.querySelector<HTMLElement>('.rank-info-popup')?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return
+    rankInfoOpen = false
+    render()
+    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#rank-path-info')?.focus())
+  })
 }
 const stableStringify = (value: unknown) => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
