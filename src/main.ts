@@ -10,6 +10,7 @@ import summerOutfitVideo from './assets/From Klickpin.com- Try Simple summer out
 import authBackgroundVideo from './assets/From Klickpin.com- Creative hemming tricks and clever inspiration for simple living to pin for your next project-pin-id-734790495486499121.mp4'
 
 type ExerciseEntry = { id: string; label: string; xpPerUnit: number; unitLabel: string }
+type OneOffExercise = { id: string; name: string; difficulty: number; awardXp: boolean }
 type Challenge = { name: string; detail: string; reward: number; className: string }
 type DayMode = 'training' | 'recovery'
 type RankPromotion = { id: string; fromRank: string; toRank: string; timestamp: string }
@@ -20,6 +21,7 @@ type TrainingState = {
   currentLevel: number;
   exerciseTotals: Record<string, number>;
   dailyLogs: Record<string, Record<string, number>>;
+  oneOffExercises: Record<string, OneOffExercise[]>;
   activityDates: Record<string, true>;
   attendanceDates: Record<string, DayMode>;
   xpHistory: Record<string, number>;
@@ -88,6 +90,18 @@ const buildState = (oldState: Record<string, any>): TrainingState => ({
   currentLevel: oldState.currentLevel ?? 1,
   exerciseTotals: oldState.exerciseTotals ?? { push: 0, run: 0 },
   dailyLogs: oldState.dailyLogs ?? {},
+  oneOffExercises: Object.fromEntries(Object.entries(oldState.oneOffExercises ?? {}).map(([date, entries]) => [
+    date,
+    Array.isArray(entries) ? entries.filter((exercise: Partial<OneOffExercise>) => (
+      typeof exercise.id === 'string'
+      && typeof exercise.name === 'string'
+      && exercise.name.trim().length > 0
+      && Number.isInteger(exercise.difficulty)
+      && Number(exercise.difficulty) >= 1
+      && Number(exercise.difficulty) <= 7
+      && typeof exercise.awardXp === 'boolean'
+    )).map((exercise: OneOffExercise) => ({ ...exercise, name: exercise.name.trim() })) : [],
+  ])),
   activityDates: oldState.activityDates ?? {},
   attendanceDates: oldState.attendanceDates ?? {},
   xpHistory: oldState.xpHistory ?? {},
@@ -376,7 +390,8 @@ let rankInfoOpen = false
 let tagDropdownOpen = false
 let quoteLoading = false
 let customQuoteFormOpen = false
-let customExerciseFormOpen = false
+let oneOffExerciseFormOpen = false
+let editingOneOffExerciseId: string | null = null
 let resetConfirmationOpen = false
 let signOutConfirmationOpen = false
 let resetCodeStep: 'setup' | 'verify' | 'confirm' = 'verify'
@@ -473,7 +488,6 @@ function renderHomeTab(level: ReturnType<typeof current>) {
   const xpRules = `
     <div class="xp-rule"><span>Push-ups : </span><strong>+${XP_CONFIG.exercise.push} XP / rep</strong></div>
     <div class="xp-rule"><span>Run : </span><strong>+${XP_CONFIG.exercise.run} XP / km</strong></div>
-    <div class="xp-rule"><span>Custom exercise : </span><strong>+${XP_CONFIG.exercise.custom} XP / unit</strong></div>
     <div class="xp-rule"><span>Training attendance : </span><strong>+${XP_CONFIG.exercise.trainingAttendanceBonus} XP</strong></div>
     <div class="xp-rule"><span>Recovery attendance : </span><strong>+${XP_CONFIG.exercise.recoveryAttendanceBonus} XP</strong></div>
     <div class="xp-rule xp-rule-penalty"><span>Missed day : </span><strong>-${XP_CONFIG.exercise.missPenalty} XP</strong></div>`
@@ -540,12 +554,10 @@ function renderProgressTab(ladderRows: string) {
 }
 
 function renderTodayTab(log: Record<string, number>, todayLabel: string) {
-  const formatKilometres = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 })
   const attendanceForToday = state.attendanceDates[todayKey()]
-  const latestRun = state.runs.filter((run) => localDateKey(new Date(run.finishedAt)) === todayKey())
-    .sort((left, right) => right.finishedAt - left.finishedAt).at(0)
+  const oneOffExercises = state.oneOffExercises[todayKey()] ?? []
   if (attendanceForToday) todayMode = attendanceForToday
-  const hasLoggedTrainingToday = Object.values(log).some((quantity) => quantity > 0)
+  const hasLoggedTrainingToday = Object.values(log).some((quantity) => quantity > 0) || oneOffExercises.length > 0
   const changeDayTypeButton = attendanceForToday
     ? '<button class="small-button change-day-mode" type="button" disabled>CHANGE DAY TYPE</button>'
     : '<button class="small-button change-day-mode" id="change-today-mode" type="button">CHANGE DAY TYPE</button>'
@@ -553,12 +565,7 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
     const isCustom = !baseExercises.some((baseExercise) => baseExercise.id === exercise.id)
     const loggedQuantity = log[exercise.id]
     const isLoggedToday = loggedQuantity !== undefined
-    const manualExerciseDetail = isLoggedToday
-      ? `<small><span>All-time total: ${state.exerciseTotals[exercise.id] ?? 0}</span><span>Logged today: ${loggedQuantity}</span><span>Available tomorrow</span></small>`
-      : `<small><span>All-time total: ${state.exerciseTotals[exercise.id] ?? 0}</span><span>${getExerciseXpLabel(exercise.id)}</span></small>`
-    const exerciseDetail = exercise.id === 'run'
-      ? `<small><span>All-time total: ${formatKilometres(state.exerciseTotals.run ?? 0)} km</span><span>Today's total: ${formatKilometres(log.run ?? 0)} km</span>${latestRun ? `<span>Last run: ${formatKilometres(latestRun.distanceM / 1000)} km</span>` : ''}${isLoggedToday ? '' : `<span>${getExerciseXpLabel('run')}</span>`}</small>`
-      : manualExerciseDetail
+    const exerciseDetail = `<small><span>${escapeHtml(getExerciseXpLabel(exercise.id))}</span></small>`
     const quantityValue = isLoggedToday ? loggedQuantity : ''
     const deleteButton = isCustom
       ? `<button class="small-button delete-custom-exercise" data-exercise="${exercise.id}" type="button">DELETE</button>`
@@ -574,9 +581,9 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
           <span class="check-copy"><b>${exercise.label}</b></span>
         </div>
         <div class="log-actions ${exercise.id === 'run' ? 'run-log-actions' : ''}">
-          <input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" step="${exercise.id === 'run' ? '0.001' : '1'}" inputmode="${exercise.id === 'run' ? 'decimal' : 'numeric'}" value="${quantityValue}" placeholder="0" aria-label="${exercise.label} ${exercise.id === 'run' ? 'kilometres' : 'count'}" ${isLoggedToday || !attendanceForToday ? 'disabled' : ''}>
+          <input class="quantity-input" data-quantity="${exercise.id}" type="number" min="0" step="${exercise.id === 'run' ? '0.001' : '1'}" inputmode="${exercise.id === 'run' ? 'decimal' : 'numeric'}" value="${quantityValue}" placeholder="0" aria-label="${exercise.label} ${exercise.id === 'run' ? 'kilometres' : 'count'}" ${!attendanceForToday ? 'disabled' : ''}>
           ${exercise.id === 'run' ? '<span class="quantity-unit" aria-hidden="true">km</span>' : ''}
-          <button class="small-button add-exercise" data-exercise="${exercise.id}" type="button" ${isLoggedToday || !attendanceForToday ? 'disabled' : ''}>${isLoggedToday ? 'LOGGED' : 'ADD'}</button>
+          <button class="small-button add-exercise" data-exercise="${exercise.id}" type="button" ${!attendanceForToday ? 'disabled' : ''}>${isLoggedToday ? 'UPDATE' : 'ADD'}</button>
           ${deleteButton}
         </div>
         <div class="log-statistics">${exerciseDetail}</div>
@@ -585,17 +592,24 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
     `
   }).join('')
 
-  const customFormMarkup = customExerciseFormOpen ? `
-    <div class="custom-exercise-form" id="custom-exercise-form">
-      <input id="custom-exercise-name" type="text" maxlength="30" placeholder="Exercise name" aria-label="Custom exercise name">
-      <div class="custom-exercise-rate">
-        <input id="custom-exercise-xp" type="number" min="0.1" step="0.1" value="0.1" placeholder="XP" aria-label="XP earned per unit">
-        <span>XP per</span>
-        <input id="custom-exercise-unit" type="text" maxlength="12" value="unit" placeholder="unit" aria-label="Exercise unit label">
+  const oneOffExerciseRows = oneOffExercises.map((exercise) => `<div class="log-item one-off-exercise" data-one-off-id="${escapeHtml(exercise.id)}">
+    <div class="log-summary"><span class="check-figure custom">${exerciseVisual('custom', '', exercise.name)}</span><span class="check-copy"><b>${escapeHtml(exercise.name)}</b><small>Difficulty ${exercise.difficulty}/7</small></span></div>
+    <div class="one-off-xp">+${exercise.awardXp ? exercise.difficulty : 0} XP</div>
+    <div class="log-actions"><button class="small-button edit-one-off-exercise" data-one-off-id="${escapeHtml(exercise.id)}" type="button">EDIT XP</button><button class="small-button delete-one-off-exercise" data-one-off-id="${escapeHtml(exercise.id)}" type="button">DELETE XP</button></div>
+  </div>`).join('')
+  const editingOneOffExercise = oneOffExercises.find((exercise) => exercise.id === editingOneOffExerciseId)
+  const oneOffExerciseFormMarkup = oneOffExerciseFormOpen ? `
+    <div class="custom-exercise-form one-off-exercise-form" id="one-off-exercise-form">
+      <label for="one-off-exercise-name">WHAT EXERCISE DID YOU DO?</label>
+      <input id="one-off-exercise-name" type="text" maxlength="50" value="${escapeHtml(editingOneOffExercise?.name ?? '')}" placeholder="Exercise name" aria-label="Exercise name">
+      <label for="one-off-exercise-difficulty">DIFFICULTY <output id="one-off-difficulty-value" for="one-off-exercise-difficulty">${editingOneOffExercise?.difficulty ?? 1}</output>/7</label>
+      <div class="difficulty-slider-wrap">
+        <input id="one-off-exercise-difficulty" type="range" min="1" max="7" step="1" value="${editingOneOffExercise?.difficulty ?? 1}" aria-label="Difficulty from 1 to 7">
+        <div class="difficulty-slider-points" aria-hidden="true">${Array.from({ length: 7 }, (_, index) => `<span>${index + 1}</span>`).join('')}</div>
       </div>
       <div class="custom-exercise-actions">
-        <button class="small-button secondary-button" id="cancel-custom-exercise" type="button">CANCEL</button>
-        <button class="small-button" id="save-custom-exercise" type="button">SAVE</button>
+        <button class="small-button secondary-button" id="cancel-one-off-exercise" type="button">CANCEL</button>
+        <button class="small-button" id="save-one-off-exercise" type="button" ${editingOneOffExercise?.name.trim() ? '' : 'disabled'}>${editingOneOffExercise ? 'UPDATE XP' : 'LOG EXERCISE'}</button>
       </div>
     </div>` : ''
 
@@ -663,13 +677,13 @@ function renderTodayTab(log: Record<string, number>, todayLabel: string) {
     <section class="today-mode-layout today-training-layout">
       <div class="today-log-details">
         <div class="today-mode-toolbar"><p class="kicker">TRAINING DAY</p><div class="today-mode-actions">${attendanceButtonMarkup}${changeDayTypeButton}</div></div>
-        <section class="section-heading"><div><p class="kicker">${todayLabel.toUpperCase()}</p><h2>Log your training</h2></div><span class="day-chip">${Object.keys(log).length} EXERCISES</span></section>
+        <section class="section-heading"><div><p class="kicker">${todayLabel.toUpperCase()}</p><h2>Log your training</h2></div><span class="day-chip">${Object.keys(log).length + oneOffExercises.length} EXERCISES</span></section>
       </div>
       <div class="today-training-content">
-        <section class="mission-card"><div class="checklist">${exerciseList}${customFormMarkup}</div></section>
+        <section class="mission-card"><div class="checklist">${exerciseList}${oneOffExerciseRows}${oneOffExerciseFormMarkup}</div></section>
       </div>
       <div class="today-training-actions">
-        <button class="small-button add-custom-exercise" id="add-custom-exercise" type="button" ${attendanceForToday ? '' : 'disabled'}>ADD EXERCISE</button>
+        <button class="small-button add-custom-exercise" id="log-one-off-exercise" type="button" ${attendanceForToday ? '' : 'disabled'}>LOG OTHER EXERCISE</button>
         ${completeTodayButton}
       </div>
     </section>
@@ -757,6 +771,7 @@ const renderXpChart = () => {
     if (source === 'attendance:recovery') return 'Recovery check-in'
     if (source === 'attendance') return state.attendanceDates[selectedKey] === 'recovery' ? 'Recovery check-in' : 'Training check-in'
     if (source === 'penalty') return 'Missed day penalty'
+    if (source.startsWith('one-off:')) return state.oneOffExercises[selectedKey]?.find((exercise) => exercise.id === source.slice('one-off:'.length))?.name ?? 'Other exercise'
     if (source.startsWith('exercise:')) {
       const id = source.slice('exercise:'.length)
       return exercises().find((exercise) => exercise.id === id)?.label ?? id
@@ -765,6 +780,10 @@ const renderXpChart = () => {
     return source
   }
   const sourceDetail = (source: string) => {
+    if (source.startsWith('one-off:')) {
+      const exercise = state.oneOffExercises[selectedKey]?.find((item) => item.id === source.slice('one-off:'.length))
+      return exercise ? `Difficulty ${exercise.difficulty}/7` : ''
+    }
     if (!source.startsWith('exercise:')) return ''
     const id = source.slice('exercise:'.length)
     const count = state.dailyLogs[selectedKey]?.[id]
@@ -859,6 +878,21 @@ function renderProfileTab(level: ReturnType<typeof current>) {
         ${systemInfoOpen ? `<div class="system-stats-info" id="system-stats-explanation"><p>Values are calculated from your saved training activity.</p><ul><li><b>STR</b> = total push-ups / 10</li><li><b>VIT</b> = completed workout days</li><li><b>AGI</b> = total run distance in km</li><li><b>END</b> = attended workout or recovery days</li><li><b>DEX</b> = custom exercises created</li></ul></div>` : ''}
         <div class="system-stats-grid">
           ${stats.map((stat) => `<div class="system-stat"><b>${stat.label}</b><strong>${stat.value}</strong><span>${stat.detail}</span></div>`).join('')}
+        </div>
+      </section>
+      <section class="exercise-totals">
+        <section class="section-heading"><div><p class="kicker">TRAINING RECORD</p><h2>All-time exercise totals</h2></div></section>
+        <div class="exercise-total-list">
+          ${exercises().map((exercise) => {
+            const total = state.exerciseTotals[exercise.id] ?? 0
+            const unit = exercise.id === 'run'
+              ? 'km'
+              : state.customExercises.find((custom) => custom.id === exercise.id)?.unitLabel ?? 'reps'
+            const formattedTotal = exercise.id === 'run'
+              ? total.toLocaleString(undefined, { maximumFractionDigits: 3 })
+              : total.toLocaleString()
+            return `<div class="exercise-total-item"><span>${escapeHtml(exercise.label)}</span><strong>${formattedTotal} <small>${escapeHtml(unit)}</small></strong></div>`
+          }).join('')}
         </div>
       </section>
     `)}
@@ -1040,22 +1074,38 @@ function render() {
   document.querySelectorAll<HTMLButtonElement>('.add-exercise').forEach((button) => button.addEventListener('click', () => {
     const id = button.dataset.exercise
     const input = document.querySelector<HTMLInputElement>(`[data-quantity="${id}"]`)
-    const quantity = Number(input?.value)
-    if (!id || !Number.isFinite(quantity) || quantity <= 0) { showToast('Enter a quantity greater than zero'); return }
+    const rawQuantity = input?.value.trim() ?? ''
+    const quantity = Number(rawQuantity)
+    if (!id || !rawQuantity || !Number.isFinite(quantity) || quantity < 0) { showToast('Enter a valid quantity'); return }
     const date = todayKey()
     const dayLog = state.dailyLogs[date] ?? {}
-    if (dayLog[id] !== undefined) { showToast('This exercise is already logged for today'); return }
     const enteredCount = id === 'run' ? Math.round(quantity * 1000) / 1000 : Math.floor(quantity)
-    if (enteredCount <= 0) { showToast('Enter at least one rep or 0.001 km'); return }
-    recordTrainingDay(date)
-    dayLog[id] = enteredCount
-    state.dailyLogs[date] = dayLog
-    state.exerciseTotals[id] = (state.exerciseTotals[id] ?? 0) + enteredCount
-    const xpGain = getExerciseXpGain(id) * enteredCount
-    const xpText = id === 'run' ? `${enteredCount} km` : `${enteredCount} reps`
+    const previousCount = dayLog[id] ?? 0
+    if (enteredCount === 0 && previousCount === 0) { showToast('There is no logged activity to remove'); return }
+    if (enteredCount === previousCount) { showToast('No changes to save'); return }
+    if (previousCount === 0 && enteredCount > 0) recordTrainingDay(date)
+    const countDifference = enteredCount - previousCount
+    if (enteredCount === 0) {
+      delete dayLog[id]
+      if (Object.keys(dayLog).length === 0) delete state.dailyLogs[date]
+      else state.dailyLogs[date] = dayLog
+    } else {
+      dayLog[id] = enteredCount
+      state.dailyLogs[date] = dayLog
+    }
+    const updatedTotal = Math.max(0, (state.exerciseTotals[id] ?? 0) + countDifference)
+    state.exerciseTotals[id] = id === 'run' ? Math.round(updatedTotal * 1000) / 1000 : updatedTotal
+    const xpGain = roundXp(getExerciseXpGain(id) * countDifference)
     addXp(date, xpGain, `exercise:${id}`)
     syncLevelFromXp()
-    save(); render(); showToast(`${xpText} logged · +${formatXp(xpGain)} XP`)
+    save()
+    render()
+    const xpChange = `${xpGain > 0 ? '+' : ''}${formatXp(xpGain)} XP`
+    if (enteredCount === 0) showToast(`${id === 'run' ? 'Run' : 'Push-ups'} removed · ${xpChange}`)
+    else {
+      const xpText = id === 'run' ? `${enteredCount} km` : `${enteredCount} reps`
+      showToast(previousCount === 0 ? `${xpText} logged · ${xpChange}` : `${xpText} updated · ${xpChange}`)
+    }
   }))
   document.querySelectorAll<HTMLButtonElement>('.today-mode-option').forEach((button) => button.addEventListener('click', () => {
     const mode = button.dataset.todayMode
@@ -1126,57 +1176,76 @@ function render() {
     render()
   })
 
-  const customInput = document.querySelector<HTMLInputElement>('#custom-exercise-name')
-  const openCustomForm = () => {
-    customExerciseFormOpen = true
-    render()
-    requestAnimationFrame(() => {
-      const nextInput = document.querySelector<HTMLInputElement>('#custom-exercise-name')
-      nextInput?.focus()
-    })
-  }
-  const closeCustomForm = () => {
-    customExerciseFormOpen = false
-    if (customInput) customInput.value = ''
+  const closeOneOffExerciseForm = () => {
+    oneOffExerciseFormOpen = false
+    editingOneOffExerciseId = null
     render()
   }
-
-  document.querySelector('#add-custom-exercise')?.addEventListener('click', () => {
-    openCustomForm()
+  document.querySelector('#log-one-off-exercise')?.addEventListener('click', () => {
+    editingOneOffExerciseId = null
+    oneOffExerciseFormOpen = true
+    render()
+    requestAnimationFrame(() => document.querySelector<HTMLInputElement>('#one-off-exercise-name')?.focus())
   })
-
-  document.querySelector('#cancel-custom-exercise')?.addEventListener('click', () => {
-    closeCustomForm()
+  document.querySelector('#cancel-one-off-exercise')?.addEventListener('click', closeOneOffExerciseForm)
+  document.querySelectorAll<HTMLButtonElement>('.edit-one-off-exercise').forEach((button) => button.addEventListener('click', () => {
+    editingOneOffExerciseId = button.dataset.oneOffId ?? null
+    if (!editingOneOffExerciseId) return
+    oneOffExerciseFormOpen = true
+    render()
+    requestAnimationFrame(() => document.querySelector<HTMLInputElement>('#one-off-exercise-name')?.focus())
+  }))
+  document.querySelector<HTMLInputElement>('#one-off-exercise-name')?.addEventListener('input', (event) => {
+    const name = (event.currentTarget as HTMLInputElement).value.trim()
+    const saveButton = document.querySelector<HTMLButtonElement>('#save-one-off-exercise')
+    if (saveButton) saveButton.disabled = name.length === 0
   })
-
-  document.querySelector('#save-custom-exercise')?.addEventListener('click', () => {
-    const customName = customInput?.value.trim() ?? ''
-    const xpPerUnit = Number(document.querySelector<HTMLInputElement>('#custom-exercise-xp')?.value)
-    const unitLabel = document.querySelector<HTMLInputElement>('#custom-exercise-unit')?.value.trim() ?? ''
-    if (!customName) {
-      showToast('Enter an exercise name')
-      return
-    }
-    if (!Number.isFinite(xpPerUnit) || xpPerUnit <= 0 || !unitLabel) {
-      showToast('Enter XP per unit and a unit name')
-      return
-    }
-
-    const normalized = customName.toLowerCase()
-    const matchesExisting = [...baseExercises, ...state.customExercises].some((exercise) => exercise.label.toLowerCase() === normalized)
-    if (matchesExisting) {
-      showToast('This exercise already exists')
-      closeCustomForm()
+  document.querySelector<HTMLInputElement>('#one-off-exercise-difficulty')?.addEventListener('input', (event) => {
+    const difficulty = (event.currentTarget as HTMLInputElement).value
+    const output = document.querySelector<HTMLOutputElement>('#one-off-difficulty-value')
+    if (output) output.value = difficulty
+  })
+  document.querySelector('#save-one-off-exercise')?.addEventListener('click', () => {
+    const name = document.querySelector<HTMLInputElement>('#one-off-exercise-name')?.value.trim() ?? ''
+    const difficultyValue = Number(document.querySelector<HTMLInputElement>('#one-off-exercise-difficulty')?.value)
+    if (!name) { showToast('Enter the exercise you completed'); return }
+    if (!Number.isInteger(difficultyValue) || difficultyValue < 1 || difficultyValue > 7) {
+      showToast('Difficulty must be a whole number from 1 to 7')
       return
     }
 
-    const customId = buildExerciseId(customName)
-    state.customExercises.push({ id: customId, label: customName, xpPerUnit, unitLabel })
-    state.exerciseTotals[customId] = state.exerciseTotals[customId] ?? 0
+    const date = todayKey()
+    const entries = state.oneOffExercises[date] ?? []
+    const currentEntry = entries.find((exercise) => exercise.id === editingOneOffExerciseId)
+    const id = currentEntry?.id ?? `one-off-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    if (!currentEntry) recordTrainingDay(date)
+    const previousXp = currentEntry?.awardXp === false ? 0 : currentEntry?.difficulty ?? 0
+    const nextXp = difficultyValue
+    const entry: OneOffExercise = { id, name, difficulty: difficultyValue, awardXp: true }
+    state.oneOffExercises[date] = currentEntry
+      ? entries.map((exercise) => exercise.id === id ? entry : exercise)
+      : [...entries, entry]
+    addXp(date, nextXp - previousXp, `one-off:${id}`)
+    syncLevelFromXp()
     save()
-    closeCustomForm()
-    showToast(`${customName} added`)
+    closeOneOffExerciseForm()
+    showToast(currentEntry ? `Exercise updated · ${nextXp - previousXp >= 0 ? '+' : ''}${formatXp(nextXp - previousXp)} XP` : `${name} logged · +${difficultyValue} XP`)
   })
+  document.querySelectorAll<HTMLButtonElement>('.delete-one-off-exercise').forEach((button) => button.addEventListener('click', () => {
+    const id = button.dataset.oneOffId
+    if (!id) return
+    const date = todayKey()
+    const entries = state.oneOffExercises[date] ?? []
+    const exercise = entries.find((item) => item.id === id)
+    if (!exercise) return
+    addXp(date, exercise.awardXp === false ? 0 : -exercise.difficulty, `one-off:${id}`)
+    state.oneOffExercises[date] = entries.filter((item) => item.id !== id)
+    if (state.oneOffExercises[date].length === 0) delete state.oneOffExercises[date]
+    syncLevelFromXp()
+    save()
+    render()
+    showToast(`${exercise.name} XP removed`)
+  }))
 
   document.querySelectorAll<HTMLButtonElement>('.delete-custom-exercise').forEach((button) => button.addEventListener('click', () => {
     const id = button.dataset.exercise
@@ -1446,7 +1515,7 @@ function render() {
     resetConfirmationOpen = false
     resetCodeError = ''
 
-    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, activityDates: {}, attendanceDates: {}, xpHistory: {}, xpBreakdown: {}, rankUpHistory: [], rankUpQueue: [], customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], runs: [], runHistoryResetAt, lastAttendanceCheckDate: undefined }
+    state = { completed: 0, challengeDone: false, xp: 0, currentLevel: 1, exerciseTotals: { push: 0, run: 0 }, dailyLogs: {}, oneOffExercises: {}, activityDates: {}, attendanceDates: {}, xpHistory: {}, xpBreakdown: {}, rankUpHistory: [], rankUpQueue: [], customExercises: [], customChallenges: [], savedChallenges: [...baseChallenges], runs: [], runHistoryResetAt, lastAttendanceCheckDate: undefined }
     save()
     render()
     showToast('Progress reset to Level 1')
