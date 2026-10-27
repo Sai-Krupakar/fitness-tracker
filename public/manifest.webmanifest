@@ -1,0 +1,22 @@
+{
+  "name": "Solo Levelling",
+  "short_name": "Solo Levelling",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101416",
+  "theme_color": "#101416",
+  "icons": [
+    {
+      "src": "/app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

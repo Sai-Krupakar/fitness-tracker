@@ -966,7 +966,7 @@ function render() {
 
   document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div class="app-shell" data-theme="${appTheme}">
-      <header class="topbar"><div class="brand-mark"><span class="brand-orbit"></span><span>LEVEL<br><b>UP</b></span></div><div class="header-status"><span class="status-dot"></span> ${todayLabel}</div><button class="icon-button" id="profile" aria-label="Open profile">◎</button></header>
+      <header class="topbar"><div class="brand-mark"><img class="brand-app-icon" src="/app-icon-192.png" alt="Sung Jinwoo"><span>LEVEL<br><b>UP</b></span></div><div class="header-status"><span class="status-dot"></span> ${todayLabel}</div><button class="icon-button" id="profile" aria-label="Open profile">◎</button></header>
       <main id="top">${tabContent}</main>
       <nav class="bottom-nav">${navItem('home', '⌂', 'HOME')}${navItem('today', '◒', "HUNTER LOG")}${showLevelProgress ? navItem('progress', '▥', 'PROGRESS') : `<!-- ${navItem('progress', '▥', 'PROGRESS')} -->`}${navItem('missions', '✦', 'CHALLENGES')}${navItem('profile', '◉', 'PROFILE')}</nav>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
